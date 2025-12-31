@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { Play, Loader2, Sparkles } from 'lucide-react';
+import { addActivityLog } from './LogViewer';
 
 interface Progress {
     total: number;
@@ -20,6 +21,7 @@ export default function ManualTrigger() {
         setLoading(true);
         setProgress(null);
         setError('');
+        addActivityLog('info', '开始手动抓取排行榜...');
 
         try {
             const response = await fetch('/api/crawl', {
@@ -32,11 +34,14 @@ export default function ManualTrigger() {
 
             if (response.ok) {
                 setProgress(data.progress);
+                addActivityLog('success', `抓取完成: 成功 ${data.progress.success}, 跳过 ${data.progress.skipped}, 失败 ${data.progress.failed}`);
             } else {
                 setError(data.error || '抓取失败');
+                addActivityLog('error', `抓取失败: ${data.error || '未知错误'}`);
             }
         } catch (err) {
             setError('网络错误，请重试');
+            addActivityLog('error', '网络错误，请重试');
         } finally {
             setLoading(false);
         }

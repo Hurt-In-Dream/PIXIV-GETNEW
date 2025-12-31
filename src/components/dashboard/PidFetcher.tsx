@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { Search, Loader2, ImageIcon } from 'lucide-react';
+import { addActivityLog } from './LogViewer';
 
 interface Progress {
     total: number;
@@ -27,6 +28,7 @@ export default function PidFetcher() {
         setLoading(true);
         setProgress(null);
         setError('');
+        addActivityLog('info', `开始抓取 PID: ${pid.trim()}...`);
 
         try {
             const response = await fetch('/api/fetch-pid', {
@@ -44,6 +46,7 @@ export default function PidFetcher() {
             if (response.ok) {
                 if (data.progress) {
                     setProgress(data.progress);
+                    addActivityLog('success', `PID ${pid} 抓取完成: 成功 ${data.progress.success}, 失败 ${data.progress.failed}`);
                 } else {
                     setProgress({
                         total: 1,
@@ -52,12 +55,16 @@ export default function PidFetcher() {
                         failed: !data.success ? 1 : 0,
                         skipped: data.skipped ? 1 : 0,
                     });
+                    addActivityLog(data.success ? 'success' : 'error',
+                        data.success ? `PID ${pid} 抓取成功` : `PID ${pid} 抓取失败`);
                 }
             } else {
                 setError(data.error || '抓取失败');
+                addActivityLog('error', `PID ${pid} 抓取失败: ${data.error || '未知错误'}`);
             }
         } catch (err) {
             setError('网络错误，请重试');
+            addActivityLog('error', '网络错误，请重试');
         } finally {
             setLoading(false);
         }
@@ -96,8 +103,8 @@ export default function PidFetcher() {
                     <button
                         onClick={() => setFetchRelated(!fetchRelated)}
                         className={`relative inline-flex h-6 w-10 items-center rounded-full transition-colors duration-300 ${fetchRelated
-                                ? 'bg-gradient-to-r from-blue-500 to-indigo-500'
-                                : 'bg-gray-300 dark:bg-gray-600'
+                            ? 'bg-gradient-to-r from-blue-500 to-indigo-500'
+                            : 'bg-gray-300 dark:bg-gray-600'
                             }`}
                     >
                         <span

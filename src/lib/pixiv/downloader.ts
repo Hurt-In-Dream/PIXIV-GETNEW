@@ -60,11 +60,30 @@ export async function getImageInfo(pid: number | string): Promise<ImageInfo | nu
             originalUrls = [originalUrl];
         }
 
+        // Handle different tag formats from Pixiv API
+        let tags: string[] = [];
+        if (detail.tags) {
+            if (Array.isArray(detail.tags)) {
+                // Format: [{tag: "xxx"}, ...] or ["xxx", ...]
+                tags = detail.tags.map((t: unknown) => {
+                    if (typeof t === 'string') return t;
+                    if (typeof t === 'object' && t !== null && 'tag' in t) {
+                        return String((t as { tag: string }).tag);
+                    }
+                    return '';
+                }).filter(Boolean);
+            } else if (typeof detail.tags === 'object' && 'tags' in detail.tags) {
+                // Format: {tags: [{tag: "xxx"}, ...]}
+                const tagsObj = detail.tags as { tags: Array<{ tag: string }> };
+                tags = tagsObj.tags.map(t => t.tag || '').filter(Boolean);
+            }
+        }
+
         return {
             pid: parseInt(String(pid)),
-            title: detail.title,
-            artist: detail.userName,
-            tags: detail.tags.map(t => t.tag),
+            title: detail.title || 'Untitled',
+            artist: detail.userName || 'Unknown',
+            tags,
             originalUrls,
         };
     } catch (error) {

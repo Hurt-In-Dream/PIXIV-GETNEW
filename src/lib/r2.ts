@@ -83,11 +83,13 @@ export type ImageOrientation = 'h' | 'v'; // horizontal or vertical
  * @param pid - Pixiv illustration ID
  * @param orientation - 'h' for horizontal (landscape), 'v' for vertical (portrait)
  * @param extension - File extension
+ * @param isR18 - Whether the image is R18
  */
 export function generateR2Key(
     pid: number,
     orientation: ImageOrientation = 'v',
-    extension: string = 'jpg'
+    extension: string = 'jpg',
+    isR18: boolean = false
 ): string {
     const date = new Date();
     const dateStr = [
@@ -96,8 +98,9 @@ export function generateR2Key(
         String(date.getDate()).padStart(2, '0'),
     ].join('');
 
-    // Format: h/20260101_123456789.jpg or v/20260101_123456789.jpg
-    return `${orientation}/${dateStr}_${pid}.${extension}`;
+    const prefix = isR18 ? 'R18/' : '';
+    // Format: [R18/]h/20260101_123456789.jpg or [R18/]v/20260101_123456789.jpg
+    return `${prefix}${orientation}/${dateStr}_${pid}.${extension}`;
 }
 
 /**

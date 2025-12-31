@@ -116,8 +116,11 @@ export async function processIllustration(pid: number): Promise<{
     // Determine image orientation (h = horizontal/landscape, v = vertical/portrait)
     const orientation = getImageOrientation(info.width, info.height);
 
-    // Upload to R2 with orientation-based folder structure
-    const r2Key = generateR2Key(pid, orientation, image.extension);
+    // Check if it's R18
+    const isR18 = info.tags.some(tag => tag.toLowerCase() === 'r-18' || tag.toLowerCase() === 'r18');
+
+    // Upload to R2 with orientation-based folder structure (and R18 prefix if applicable)
+    const r2Key = generateR2Key(pid, orientation, image.extension, isR18);
     const uploadResult = await uploadToR2(image.buffer, r2Key, image.contentType);
 
     if (!uploadResult.success) {

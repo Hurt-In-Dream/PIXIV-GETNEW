@@ -43,13 +43,14 @@ export async function GET(request: NextRequest) {
         const tags = settings?.tags || ['イラスト'];
         const r18Enabled = settings?.r18_enabled || false;
 
-        // Crawl ranking first
+        // Crawl ranking first (portrait mode for background API use)
+        // Fetch 15 images with portrait preference for suitability as backgrounds
         const rankingMode = r18Enabled ? 'daily_r18' : 'daily';
-        const rankingResult = await crawlRanking(rankingMode, 5);
+        const rankingResult = await crawlRanking(rankingMode, 15, true);
 
-        // Then crawl by tags (one random tag)
+        // Then crawl by tags (one random tag) with portrait preference
         const randomTag = tags[Math.floor(Math.random() * tags.length)];
-        const tagResult = await crawlByTag(randomTag, 5);
+        const tagResult = await crawlByTag(randomTag, 10);
 
         return NextResponse.json({
             success: true,

@@ -29,6 +29,8 @@ export interface ImageInfo {
     artist: string;
     tags: string[];
     originalUrls: string[];
+    width: number;
+    height: number;
 }
 
 /**
@@ -85,6 +87,8 @@ export async function getImageInfo(pid: number | string): Promise<ImageInfo | nu
             artist: detail.userName || 'Unknown',
             tags,
             originalUrls,
+            width: detail.width || 0,
+            height: detail.height || 0,
         };
     } catch (error) {
         console.error('Failed to get image info:', error);

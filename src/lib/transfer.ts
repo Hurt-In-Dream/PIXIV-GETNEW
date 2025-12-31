@@ -4,7 +4,7 @@
  */
 
 import { createServerClient, type PixivImage } from './supabase';
-import { uploadToR2, generateR2Key } from './r2';
+import { uploadToR2, generateR2Key, getImageOrientation } from './r2';
 import {
     getImageInfo,
     downloadImage,
@@ -113,8 +113,11 @@ export async function processIllustration(pid: number): Promise<{
         return { success: false, skipped: false, error: 'Failed to download image' };
     }
 
-    // Upload to R2
-    const r2Key = generateR2Key(pid, 0, image.extension);
+    // Determine image orientation (h = horizontal/landscape, v = vertical/portrait)
+    const orientation = getImageOrientation(info.width, info.height);
+
+    // Upload to R2 with orientation-based folder structure
+    const r2Key = generateR2Key(pid, orientation, image.extension);
     const uploadResult = await uploadToR2(image.buffer, r2Key, image.contentType);
 
     if (!uploadResult.success) {
@@ -192,11 +195,42 @@ export async function processBatch(
 }
 
 /**
+ * Tags that indicate images without proper backgrounds (to skip)
+ * These are common tags for transparent/simple/white backgrounds
+ */
+const SKIP_BACKGROUND_TAGS = [
+    // Transparent/no background
+    '透過png', '透明背景', 'transparent', 'transparent_background', 'png',
+    // Simple/solid color backgrounds  
+    '白背景', '白バック', 'white_background', 'simple_background',
+    '単色背景', 'solid_background', 'grey_background', 'gray_background',
+    // Chibi/SD style (usually have simple backgrounds)
+    'ちびキャラ', 'chibi', 'SD', 'ミニキャラ', 'デフォルメ',
+    // Character design sheets
+    'キャラクターデザイン', 'character_design', '立ち絵', 'character_sheet',
+    // Other indicators of minimal backgrounds
+    'シンプル', 'simple', '落書き', 'sketch', 'doodle',
+];
+
+/**
+ * Check if an illustration should be skipped based on tags
+ */
+function shouldSkipByTags(tags: string[]): boolean {
+    const lowerTags = tags.map(t => t.toLowerCase());
+    return SKIP_BACKGROUND_TAGS.some(skipTag =>
+        lowerTags.some(tag => tag.includes(skipTag.toLowerCase()))
+    );
+}
+
+/**
  * Crawl and transfer images from ranking
+ * Balances horizontal and vertical images 1:1 ratio
+ * Filters out images with no/simple backgrounds
  */
 export async function crawlRanking(
     mode: string = 'daily',
-    limit: number = BATCH_SIZE
+    limit: number = BATCH_SIZE,
+    balanceOrientation: boolean = true
 ): Promise<TransferResult> {
     await logInfo(`开始抓取排行榜`, `模式: ${mode}, 数量: ${limit}`);
     const result = await getRanking(mode, 1);
@@ -209,16 +243,69 @@ export async function crawlRanking(
         };
     }
 
-    const batch = result.illustrations.slice(0, limit);
-    return processBatch(batch);
+    let selectedIllusts: typeof result.illustrations = [];
+
+    if (balanceOrientation) {
+        const halfLimit = Math.ceil(limit / 2);
+        const horizontalIllusts: typeof result.illustrations = [];
+        const verticalIllusts: typeof result.illustrations = [];
+
+        // Separate images by orientation, filtering out bad backgrounds
+        for (const illust of result.illustrations) {
+            // Skip images with transparent/simple background tags
+            if (shouldSkipByTags(illust.tags)) {
+                continue;
+            }
+
+            if (!illust.width || !illust.height) {
+                // Unknown dimensions - add to vertical as default
+                if (verticalIllusts.length < halfLimit) {
+                    verticalIllusts.push(illust);
+                }
+                continue;
+            }
+
+            const ratio = illust.width / illust.height;
+
+            if (ratio > 1.0) {
+                // Horizontal (landscape)
+                if (horizontalIllusts.length < halfLimit) {
+                    horizontalIllusts.push(illust);
+                }
+            } else {
+                // Vertical (portrait) or square
+                if (verticalIllusts.length < halfLimit) {
+                    verticalIllusts.push(illust);
+                }
+            }
+
+            // Stop if we have enough of both
+            if (horizontalIllusts.length >= halfLimit && verticalIllusts.length >= halfLimit) {
+                break;
+            }
+        }
+
+        selectedIllusts = [...horizontalIllusts, ...verticalIllusts];
+        await logInfo(
+            `平衡筛选完成`,
+            `横屏: ${horizontalIllusts.length}张, 竖屏: ${verticalIllusts.length}张`
+        );
+    } else {
+        // No balancing, just filter out bad backgrounds
+        selectedIllusts = result.illustrations.filter(i => !shouldSkipByTags(i.tags)).slice(0, limit);
+    }
+
+    return processBatch(selectedIllusts);
 }
 
 /**
  * Crawl and transfer images by tag
+ * Also filters out images with no/simple backgrounds
  */
 export async function crawlByTag(
     tag: string,
-    limit: number = BATCH_SIZE
+    limit: number = BATCH_SIZE,
+    balanceOrientation: boolean = true
 ): Promise<TransferResult> {
     await logInfo(`开始按标签抓取`, `标签: ${tag}, 数量: ${limit}`);
     const result = await searchByTag(tag, 1);
@@ -231,8 +318,34 @@ export async function crawlByTag(
         };
     }
 
-    const batch = result.illustrations.slice(0, limit);
-    return processBatch(batch);
+    // Filter out bad backgrounds and balance orientation
+    let selectedIllusts: typeof result.illustrations = [];
+
+    if (balanceOrientation) {
+        const halfLimit = Math.ceil(limit / 2);
+        const horizontalIllusts: typeof result.illustrations = [];
+        const verticalIllusts: typeof result.illustrations = [];
+
+        for (const illust of result.illustrations) {
+            if (shouldSkipByTags(illust.tags)) continue;
+
+            const ratio = (illust.width && illust.height) ? illust.width / illust.height : 0.8;
+
+            if (ratio > 1.0 && horizontalIllusts.length < halfLimit) {
+                horizontalIllusts.push(illust);
+            } else if (ratio <= 1.0 && verticalIllusts.length < halfLimit) {
+                verticalIllusts.push(illust);
+            }
+
+            if (horizontalIllusts.length >= halfLimit && verticalIllusts.length >= halfLimit) break;
+        }
+
+        selectedIllusts = [...horizontalIllusts, ...verticalIllusts];
+    } else {
+        selectedIllusts = result.illustrations.filter(i => !shouldSkipByTags(i.tags)).slice(0, limit);
+    }
+
+    return processBatch(selectedIllusts);
 }
 
 /**

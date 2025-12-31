@@ -15,6 +15,7 @@ interface Progress {
 export default function PidFetcher() {
     const [pid, setPid] = useState('');
     const [fetchRelated, setFetchRelated] = useState(true);
+    const [limit, setLimit] = useState(10);
     const [loading, setLoading] = useState(false);
     const [progress, setProgress] = useState<Progress | null>(null);
     const [error, setError] = useState('');
@@ -28,7 +29,7 @@ export default function PidFetcher() {
         setLoading(true);
         setProgress(null);
         setError('');
-        addActivityLog('info', `开始抓取 PID: ${pid.trim()}...`);
+        addActivityLog('info', `开始抓取 PID: ${pid.trim()} (相关推荐: ${fetchRelated ? limit : 0}张)...`);
 
         try {
             const response = await fetch('/api/fetch-pid', {
@@ -37,7 +38,7 @@ export default function PidFetcher() {
                 body: JSON.stringify({
                     pid: pid.trim(),
                     fetchRelated,
-                    limit: 5,
+                    limit,
                 }),
             });
 
@@ -113,6 +114,25 @@ export default function PidFetcher() {
                         />
                     </button>
                 </div>
+
+                {/* Limit Slider (shown when fetchRelated is on) */}
+                {fetchRelated && (
+                    <div>
+                        <label className="block text-xs text-gray-500 mb-1">相关推荐数量</label>
+                        <div className="flex items-center gap-2">
+                            <input
+                                type="range"
+                                min="5"
+                                max="30"
+                                step="5"
+                                value={limit}
+                                onChange={(e) => setLimit(Number(e.target.value))}
+                                className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                            />
+                            <span className="text-sm font-semibold text-blue-500 w-8">{limit}</span>
+                        </div>
+                    </div>
+                )}
 
                 {/* Fetch Button */}
                 <button

@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 
 // R2 client singleton
 let r2Client: S3Client | null = null;
@@ -75,16 +75,37 @@ export async function uploadToR2(
     }
 }
 
+export type ImageOrientation = 'h' | 'v'; // horizontal or vertical
+
 /**
  * Generate a unique key for storing images in R2
+ * Organizes by orientation (h/v) and uses date+pid naming
  * @param pid - Pixiv illustration ID
- * @param page - Page number (for multi-page illustrations)
+ * @param orientation - 'h' for horizontal (landscape), 'v' for vertical (portrait)
  * @param extension - File extension
  */
-export function generateR2Key(pid: number, page: number = 0, extension: string = 'jpg'): string {
+export function generateR2Key(
+    pid: number,
+    orientation: ImageOrientation = 'v',
+    extension: string = 'jpg'
+): string {
     const date = new Date();
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const dateStr = [
+        date.getFullYear(),
+        String(date.getMonth() + 1).padStart(2, '0'),
+        String(date.getDate()).padStart(2, '0'),
+    ].join('');
 
-    return `pixiv/${year}/${month}/${pid}_p${page}.${extension}`;
+    // Format: h/20260101_123456789.jpg or v/20260101_123456789.jpg
+    return `${orientation}/${dateStr}_${pid}.${extension}`;
+}
+
+/**
+ * Determine image orientation based on dimensions
+ * @param width - Image width
+ * @param height - Image height
+ * @returns 'h' for horizontal/landscape, 'v' for vertical/portrait
+ */
+export function getImageOrientation(width: number, height: number): ImageOrientation {
+    return width > height ? 'h' : 'v';
 }

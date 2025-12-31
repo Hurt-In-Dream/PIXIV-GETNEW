@@ -1,6 +1,6 @@
 # Pixiv-Vercel-Sync
 
-🎨 **一个部署在 Vercel 上的 Pixiv 图片自动抓取、智能筛选与 R2 分发系统。**
+🎨 **一个部署在 Vercel 上的 Pixiv 图片自动抓取、智能筛选与 R2 分发系统。由Claude与Gemini开发**
 
 本项目旨在打造一个自动化的高质量二次元背景图库，支持自动抓取 Pixiv 排行榜、智能过滤非背景类图片、自动平衡横竖屏比例，并转存至 Cloudflare R2。
 

@@ -195,10 +195,9 @@ export async function processBatch(
 }
 
 /**
- * Tags that indicate images without proper backgrounds (to skip)
- * These are common tags for transparent/simple/white backgrounds
+ * Tags that indicate images to skip (no background, manga, or AI generated)
  */
-const SKIP_BACKGROUND_TAGS = [
+const SKIP_TAGS = [
     // Transparent/no background
     '透過png', '透明背景', 'transparent', 'transparent_background', 'png',
     // Simple/solid color backgrounds  
@@ -210,6 +209,10 @@ const SKIP_BACKGROUND_TAGS = [
     'キャラクターデザイン', 'character_design', '立ち絵', 'character_sheet',
     // Other indicators of minimal backgrounds
     'シンプル', 'simple', '落書き', 'sketch', 'doodle',
+    // Manga/Comics (not suitable for backgrounds)
+    '漫画', 'manga', 'comic', 'コミック', '4コマ',
+    // AI Generated
+    'AI生成', 'AI-generated', 'novelai', 'midjourney', 'stable_diffusion', 'ai_generated', 'aiイラスト',
 ];
 
 /**
@@ -217,7 +220,7 @@ const SKIP_BACKGROUND_TAGS = [
  */
 function shouldSkipByTags(tags: string[]): boolean {
     const lowerTags = tags.map(t => t.toLowerCase());
-    return SKIP_BACKGROUND_TAGS.some(skipTag =>
+    return SKIP_TAGS.some(skipTag =>
         lowerTags.some(tag => tag.includes(skipTag.toLowerCase()))
     );
 }

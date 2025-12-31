@@ -35,9 +35,23 @@ INSERT INTO crawler_settings (cron_expression, tags, r18_enabled)
 SELECT '0 0 * * *', ARRAY['二次元', '風景', 'イラスト'], FALSE
 WHERE NOT EXISTS (SELECT 1 FROM crawler_settings LIMIT 1);
 
+-- Crawler logs table
+CREATE TABLE IF NOT EXISTS crawler_logs (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  level TEXT NOT NULL CHECK (level IN ('info', 'success', 'warning', 'error')),
+  message TEXT NOT NULL,
+  details TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create index for logs
+CREATE INDEX IF NOT EXISTS idx_crawler_logs_created_at ON crawler_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_crawler_logs_level ON crawler_logs(level);
+
 -- Enable Row Level Security (optional, for production)
 -- ALTER TABLE pixiv_images ENABLE ROW LEVEL SECURITY;
 -- ALTER TABLE crawler_settings ENABLE ROW LEVEL SECURITY;
 
 -- Create policy for anonymous read access (adjust based on your needs)
 -- CREATE POLICY "Allow public read" ON pixiv_images FOR SELECT USING (true);
+

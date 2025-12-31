@@ -5,7 +5,8 @@ import {
     SettingsPanel,
     ManualTrigger,
     PidFetcher,
-    ImageGallery
+    ImageGallery,
+    LogViewer
 } from '@/components/dashboard';
 import { Sparkles, Github, Heart } from 'lucide-react';
 
@@ -118,6 +119,11 @@ export default function Dashboard() {
                             <PidFetcher />
                         </div>
                     </div>
+                </div>
+
+                {/* Log Viewer */}
+                <div className="mb-8">
+                    <LogViewer />
                 </div>
 
                 {/* Image Gallery */}

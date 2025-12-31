@@ -14,6 +14,7 @@ import {
     type PixivIllust,
 } from './pixiv';
 import { delay } from './utils';
+import { logInfo, logSuccess, logWarning, logError } from './logger';
 
 export interface TransferProgress {
     total: number;
@@ -94,7 +95,7 @@ export async function processIllustration(pid: number): Promise<{
     // Check for duplicates
     const isDuplicate = await checkDuplicate(pid);
     if (isDuplicate) {
-        console.log(`PID ${pid} already exists, skipping...`);
+        await logInfo(`跳过已存在: PID ${pid}`);
         return { success: true, skipped: true };
     }
 
@@ -131,9 +132,11 @@ export async function processIllustration(pid: number): Promise<{
     });
 
     if (!saved) {
+        await logError(`保存元数据失败: PID ${pid}`);
         return { success: false, skipped: false, error: 'Failed to save metadata' };
     }
 
+    await logSuccess(`成功抓取: ${info.title}`, `PID: ${pid}, 作者: ${info.artist}`);
     return { success: true, skipped: false };
 }
 
@@ -169,11 +172,11 @@ export async function processBatch(
                 progress.success++;
             } else {
                 progress.failed++;
-                console.error(`Failed to process PID ${pid}:`, result.error);
+                await logError(`处理失败: PID ${pid}`, result.error);
             }
         } catch (error) {
             progress.failed++;
-            console.error(`Error processing PID ${pid}:`, error);
+            await logError(`处理异常: PID ${pid}`, error instanceof Error ? error.message : String(error));
         }
 
         progress.processed++;
@@ -195,6 +198,7 @@ export async function crawlRanking(
     mode: string = 'daily',
     limit: number = BATCH_SIZE
 ): Promise<TransferResult> {
+    await logInfo(`开始抓取排行榜`, `模式: ${mode}, 数量: ${limit}`);
     const result = await getRanking(mode, 1);
 
     if (!result.success) {
@@ -216,6 +220,7 @@ export async function crawlByTag(
     tag: string,
     limit: number = BATCH_SIZE
 ): Promise<TransferResult> {
+    await logInfo(`开始按标签抓取`, `标签: ${tag}, 数量: ${limit}`);
     const result = await searchByTag(tag, 1);
 
     if (!result.success) {

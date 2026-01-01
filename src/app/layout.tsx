@@ -8,7 +8,11 @@ export const metadata: Metadata = {
     title: "Pixiv-Vercel-Sync | 图片自动同步系统",
     description: "A Pixiv image auto-scraping and distribution system deployed on Vercel",
     icons: {
-        icon: "/wzk116.png",
+        icon: [
+            { url: "/wzk116.png" },
+            { url: "/icon.png", sizes: "32x32", type: "image/png" },
+        ],
+        apple: "/apple-icon.png",
     },
 };
 

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Settings, Save, Loader2, Lock } from 'lucide-react';
+import { Settings, Save, Loader2, Lock, Tag, TrendingUp } from 'lucide-react';
 
 interface SettingsPanelProps {
     initialSettings?: {
@@ -10,6 +10,8 @@ interface SettingsPanelProps {
         r18_enabled: boolean;
         crawl_limit: number;
         r18_crawl_limit: number;
+        tag_search_enabled?: boolean;
+        tag_search_limit?: number;
     };
     onSave?: () => void;
 }
@@ -19,7 +21,7 @@ export default function SettingsPanel({ initialSettings, onSave }: SettingsPanel
         initialSettings?.cron_expression || '0 0 * * *'
     );
     const [tags, setTags] = useState(
-        initialSettings?.tags?.join(', ') || 'イラスト, 二次元, 風景'
+        initialSettings?.tags?.join(', ') || '風景, イラスト'
     );
     const [r18Enabled, setR18Enabled] = useState(
         initialSettings?.r18_enabled || false
@@ -29,6 +31,12 @@ export default function SettingsPanel({ initialSettings, onSave }: SettingsPanel
     );
     const [r18CrawlLimit, setR18CrawlLimit] = useState(
         initialSettings?.r18_crawl_limit || 10
+    );
+    const [tagSearchEnabled, setTagSearchEnabled] = useState(
+        initialSettings?.tag_search_enabled || false
+    );
+    const [tagSearchLimit, setTagSearchLimit] = useState(
+        initialSettings?.tag_search_limit || 10
     );
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState('');
@@ -73,6 +81,8 @@ export default function SettingsPanel({ initialSettings, onSave }: SettingsPanel
                     r18_enabled: r18Enabled,
                     crawl_limit: crawlLimit,
                     r18_crawl_limit: r18CrawlLimit,
+                    tag_search_enabled: tagSearchEnabled,
+                    tag_search_limit: tagSearchLimit,
                 }),
             });
 
@@ -120,24 +130,20 @@ export default function SettingsPanel({ initialSettings, onSave }: SettingsPanel
                         </p>
                     </div>
 
-                    {/* Tags */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            目标标签 (Tags)
-                        </label>
-                        <input
-                            type="text"
-                            value={tags}
-                            onChange={(e) => setTags(e.target.value)}
-                            className="input-anime"
-                            placeholder="イラスト, 二次元, 風景"
-                        />
-                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                            用逗号分隔多个标签，优先使用日文标签
+                    {/* Ranking Source Info */}
+                    <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                        <div className="flex items-center gap-2 mb-1">
+                            <TrendingUp className="w-4 h-4 text-blue-500" />
+                            <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                                排行榜 (ranking.php)
+                            </span>
+                        </div>
+                        <p className="text-xs text-blue-600 dark:text-blue-400">
+                            每日热门排行榜，高质量作品，始终启用
                         </p>
                     </div>
 
-                    {/* Crawl Limits */}
+                    {/* Ranking Crawl Limits */}
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -201,6 +207,74 @@ export default function SettingsPanel({ initialSettings, onSave }: SettingsPanel
                             />
                         </button>
                     </div>
+
+                    {/* Divider */}
+                    <div className="border-t border-gray-200 dark:border-gray-700"></div>
+
+                    {/* Tag Search Toggle */}
+                    <div className="p-3 rounded-xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <Tag className="w-4 h-4 text-green-500" />
+                                <span className="text-sm font-medium text-green-700 dark:text-green-300">
+                                    标签搜索 (可选)
+                                </span>
+                            </div>
+                            <button
+                                onClick={() => setTagSearchEnabled(!tagSearchEnabled)}
+                                className={`relative inline-flex h-6 w-10 items-center rounded-full transition-colors duration-300 ${tagSearchEnabled
+                                    ? 'bg-gradient-to-r from-green-500 to-emerald-500'
+                                    : 'bg-gray-300 dark:bg-gray-600'
+                                    }`}
+                            >
+                                <span
+                                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-300 ${tagSearchEnabled ? 'translate-x-5' : 'translate-x-1'
+                                        }`}
+                                />
+                            </button>
+                        </div>
+                        <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                            按指定标签搜索，存储到独立 tag/ 文件夹
+                        </p>
+                    </div>
+
+                    {/* Tag Search Settings (shown when enabled) */}
+                    {tagSearchEnabled && (
+                        <div className="space-y-4 p-4 rounded-xl bg-green-50/50 dark:bg-green-900/10">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                    搜索标签 (日语最准确)
+                                </label>
+                                <input
+                                    type="text"
+                                    value={tags}
+                                    onChange={(e) => setTags(e.target.value)}
+                                    className="input-anime"
+                                    placeholder="風景, 背景, 夜景"
+                                />
+                                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                    用逗号分隔多个标签，使用日语标签最准确
+                                </p>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                    标签搜索抓取数量
+                                </label>
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="range"
+                                        min="5"
+                                        max="20"
+                                        step="5"
+                                        value={tagSearchLimit}
+                                        onChange={(e) => setTagSearchLimit(Number(e.target.value))}
+                                        className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-green-500"
+                                    />
+                                    <span className="text-sm font-semibold text-green-500 w-8">{tagSearchLimit}</span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Save Button */}
                     <button

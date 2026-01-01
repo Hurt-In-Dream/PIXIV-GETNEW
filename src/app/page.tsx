@@ -17,6 +17,8 @@ interface Settings {
     r18_enabled: boolean;
     crawl_limit: number;
     r18_crawl_limit: number;
+    tag_search_enabled?: boolean;
+    tag_search_limit?: number;
 }
 
 export default function Dashboard() {

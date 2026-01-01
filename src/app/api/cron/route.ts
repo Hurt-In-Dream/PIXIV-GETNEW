@@ -1,6 +1,10 @@
 /**
  * Cron API Route
  * Triggered by Vercel Cron for automated crawling
+ * Uses Pixiv ranking.php directly:
+ * - daily ranking for normal images
+ * - daily_r18 ranking for R18 images (if enabled)
+ * - tag search for specific content (if enabled)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -40,32 +44,43 @@ export async function GET(request: NextRequest) {
             .limit(1)
             .single();
 
-        const tags = settings?.tags || ['イラスト'];
         const r18Enabled = settings?.r18_enabled || false;
         const crawlLimit = settings?.crawl_limit || 10;
         const r18CrawlLimit = settings?.r18_crawl_limit || 10;
+        const tagSearchEnabled = settings?.tag_search_enabled || false;
+        const tagSearchLimit = settings?.tag_search_limit || 10;
+        const tags = settings?.tags || ['風景'];
 
-        // Crawl normal ranking (always)
+        // 1. Crawl from daily ranking (https://www.pixiv.net/ranking.php?mode=daily)
         const normalResult = await crawlRanking('daily', crawlLimit, true);
 
-        // Crawl R18 ranking if enabled (in addition to normal)
+        // 2. Crawl R18 ranking if enabled (https://www.pixiv.net/ranking.php?mode=daily_r18)
         let r18Result = null;
         if (r18Enabled) {
             r18Result = await crawlRanking('daily_r18', r18CrawlLimit, true);
         }
 
-        // Then crawl by tags (one random tag)
-        const randomTag = tags[Math.floor(Math.random() * tags.length)];
-        const tagResult = await crawlByTag(randomTag, crawlLimit);
+        // 3. Crawl by tag if enabled (stored in separate tag/ folder)
+        let tagResult = null;
+        if (tagSearchEnabled && tags.length > 0) {
+            const randomTag = tags[Math.floor(Math.random() * tags.length)];
+            tagResult = await crawlByTag(randomTag, tagSearchLimit);
+        }
 
         return NextResponse.json({
             success: true,
-            ranking: normalResult.progress,
-            r18Ranking: r18Result?.progress || null,
-            tag: {
-                tag: randomTag,
-                ...tagResult.progress,
+            ranking: {
+                mode: 'daily',
+                ...normalResult.progress,
             },
+            r18Ranking: r18Enabled ? {
+                mode: 'daily_r18',
+                ...r18Result?.progress,
+            } : null,
+            tagSearch: tagSearchEnabled ? {
+                enabled: true,
+                ...tagResult?.progress,
+            } : null,
             timestamp: new Date().toISOString(),
         });
     } catch (error) {

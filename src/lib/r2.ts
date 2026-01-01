@@ -76,6 +76,7 @@ export async function uploadToR2(
 }
 
 export type ImageOrientation = 'h' | 'v'; // horizontal or vertical
+export type ImageSource = 'ranking' | 'tag'; // source of image
 
 /**
  * Generate a unique key for storing images in R2
@@ -84,12 +85,14 @@ export type ImageOrientation = 'h' | 'v'; // horizontal or vertical
  * @param orientation - 'h' for horizontal (landscape), 'v' for vertical (portrait)
  * @param extension - File extension
  * @param isR18 - Whether the image is R18
+ * @param source - 'ranking' or 'tag' to determine folder
  */
 export function generateR2Key(
     pid: number,
     orientation: ImageOrientation = 'v',
     extension: string = 'jpg',
-    isR18: boolean = false
+    isR18: boolean = false,
+    source: ImageSource = 'ranking'
 ): string {
     const date = new Date();
     const dateStr = [
@@ -98,8 +101,12 @@ export function generateR2Key(
         String(date.getDate()).padStart(2, '0'),
     ].join('');
 
-    const prefix = isR18 ? 'R18/' : '';
-    // Format: [R18/]h/20260101_123456789.jpg or [R18/]v/20260101_123456789.jpg
+    // Build path: [R18/][tag/]h/ or [R18/][tag/]v/
+    let prefix = '';
+    if (isR18) prefix += 'R18/';
+    if (source === 'tag') prefix += 'tag/';
+
+    // Format: [R18/][tag/]h/20260101_123456789.jpg
     return `${prefix}${orientation}/${dateStr}_${pid}.${extension}`;
 }
 

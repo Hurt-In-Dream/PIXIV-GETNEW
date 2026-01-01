@@ -1,8 +1,8 @@
 # Pixiv-Vercel-Sync
 
-🎨 **一个部署在 Vercel 上的 Pixiv 图片自动抓取、智能筛选与 R2 分发系统。由Claude与Gemini开发**
+🎨 **一个部署在 Vercel 上的 Pixiv 图片自动抓取、智能筛选与 R2 分发系统。**
 
-本项目旨在打造一个自动化的高质量二次元背景图库，支持自动抓取 Pixiv 排行榜、智能过滤非背景类图片、自动平衡横竖屏比例，并转存至 Cloudflare R2。
+本项目旨在打造一个自动化的高质量二次元背景图库，支持自动抓取 Pixiv 每日排行榜、可选标签搜索、智能过滤非背景类图片、自动平衡横竖屏比例，并转存至 Cloudflare R2。
 
 ![Next.js](https://img.shields.io/badge/Next.js-14+-black?style=flat-square&logo=next.js)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue?style=flat-square&logo=typescript)
@@ -13,20 +13,40 @@
 
 ## ✨ 核心功能
 
-- 🤖 **全自动运行**: 通过 Vercel Cron 定时触发，无需人工干预。
-- 🧠 **智能筛选**: 
-  - **背景优化**: 自动过滤透明背景、纯色背景、草稿、设定图。
-  - **内容精选**: 自动跳过漫画、连载、AI 生成的作品。
-  - **比例平衡**: 自动维持横屏 (h) 与竖屏 (v) 图片 1:1 的存储比例。
-- 🚀 **多样化抓取**: 支持排行榜抓取、指定标签搜索抓取、特定 PID 及其相关推荐抓取。
-- ☁️ **R2 分类存储**: 按分级 (R18) 和屏幕方向 (横/竖) 自动组织文件夹结构。
-- 📊 **精美面板**: 基于 Next.js 构建的二次元风格管理后台，实时查看抓取日志。
+### 🤖 全自动运行
+通过 Vercel Cron 定时触发，无需人工干预，自动从 Pixiv 排行榜抓取高质量图片。
+
+### 📊 双模式抓取
+- **排行榜模式 (默认)**: 从 `ranking.php` 获取每日热门作品，质量有保证
+- **标签搜索模式 (可选)**: 按指定标签搜索特定内容 (如风景、角色)，存储到独立文件夹
+
+### 🧠 智能筛选
+- **背景优化**: 自动过滤透明背景、纯色背景、草稿、设定图
+- **内容精选**: 自动跳过漫画、Log 汇总、AI 生成、VTuber、像素画等
+- **比例平衡**: 自动维持横屏 : 竖屏 = 1.5 : 1 的比例 (优先横屏)
+- **可自定义过滤**: 在管理面板添加/删除过滤标签
+
+### ☁️ R2 分类存储
+```
+your-r2-bucket/
+├── h/                    # 排行榜横屏图片
+├── v/                    # 排行榜竖屏图片
+├── R18/h/                # R18排行榜横屏
+├── R18/v/                # R18排行榜竖屏
+├── tag/h/                # 标签搜索横屏
+├── tag/v/                # 标签搜索竖屏
+└── R18/tag/h/, R18/tag/v/   # R18标签搜索
+```
+
+### 📱 精美管理面板
+- 实时活动日志（数据库持久化，刷新不丢失）
+- 可视化设置（抓取数量滑块、开关控制）
+- 自定义过滤标签管理表格
+- R-18 内容需验证码解锁
 
 ---
 
 ## 📖 文档指南
-
-为了方便使用，我们将详细指南分成了以下几个部分：
 
 1.  **[环境变量获取](./docs/env-vars.md)** - *第一步：获取 Supabase、R2 和 Pixiv 的所有密钥*
 2.  **[部署教程](./docs/deployment.md)** - *第二步：初始化数据库并部署到 Vercel*
@@ -36,11 +56,13 @@
 
 ## 📦 技术栈
 
-- **前端**: Next.js 14 (App Router), Tailwind CSS, Lucide Icons
-- **后端**: Next.js API Routes (Edge/Serverless)
-- **数据库**: Supabase (PostgreSQL)
-- **存储**: Cloudflare R2 (S3 兼容)
-- **爬虫**: Axios + Pixiv AJAX API
+| 分类 | 技术 |
+|------|------|
+| 前端 | Next.js 14 (App Router), Tailwind CSS, Lucide Icons |
+| 后端 | Next.js API Routes (Edge/Serverless) |
+| 数据库 | Supabase (PostgreSQL) |
+| 存储 | Cloudflare R2 (S3 兼容) |
+| 爬虫 | Axios + Pixiv AJAX API |
 
 ---
 
@@ -48,13 +70,18 @@
 
 ```
 pixiv-vercel-sync/
-├── docs/               # 详细文档
+├── docs/                 # 详细文档
 ├── src/
-│   ├── app/            # 页面与 API 路由
-│   ├── components/     # UI 组件
-│   └── lib/            # 核心逻辑 (Pixiv, R2, 数据库)
-├── supabase/           # 数据库脚本
-├── vercel.json         # Vercel 配置 (Cron)
+│   ├── app/              # 页面与 API 路由
+│   │   └── api/          # cron, crawl, images, logs, settings, skip-tags
+│   ├── components/       # UI 组件 (SettingsPanel, LogViewer, SkipTagsManager 等)
+│   └── lib/              # 核心逻辑
+│       ├── pixiv/        # Pixiv API 封装
+│       ├── r2.ts         # R2 上传与路径生成
+│       ├── transfer.ts   # 图片处理与筛选逻辑
+│       └── supabase.ts   # 数据库操作
+├── supabase/             # 数据库 schema
+├── vercel.json           # Vercel Cron 配置
 └── README.md
 ```
 

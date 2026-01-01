@@ -4,7 +4,7 @@
  */
 
 import { createServerClient, type PixivImage } from './supabase';
-import { uploadToR2, generateR2Key, getImageOrientation } from './r2';
+import { uploadToR2, generateR2Key, getImageOrientation, type ImageSource } from './r2';
 import {
     getImageInfo,
     downloadImage,
@@ -86,8 +86,13 @@ export async function saveImageMetadata(
 
 /**
  * Process a single illustration: download, upload to R2, save metadata
+ * @param pid - Pixiv illustration ID
+ * @param source - 'ranking' or 'tag' to determine storage folder
  */
-export async function processIllustration(pid: number): Promise<{
+export async function processIllustration(
+    pid: number,
+    source: ImageSource = 'ranking'
+): Promise<{
     success: boolean;
     skipped: boolean;
     error?: string;
@@ -119,8 +124,8 @@ export async function processIllustration(pid: number): Promise<{
     // Check if it's R18
     const isR18 = info.tags.some(tag => tag.toLowerCase() === 'r-18' || tag.toLowerCase() === 'r18');
 
-    // Upload to R2 with orientation-based folder structure (and R18 prefix if applicable)
-    const r2Key = generateR2Key(pid, orientation, image.extension, isR18);
+    // Upload to R2 with orientation-based folder structure (and R18/tag prefix if applicable)
+    const r2Key = generateR2Key(pid, orientation, image.extension, isR18, source);
     const uploadResult = await uploadToR2(image.buffer, r2Key, image.contentType);
 
     if (!uploadResult.success) {
@@ -148,9 +153,13 @@ export async function processIllustration(pid: number): Promise<{
 
 /**
  * Process a batch of illustrations
+ * @param illustrations - Array of illustrations to process
+ * @param source - 'ranking' or 'tag' to determine storage folder
+ * @param onProgress - Optional progress callback
  */
 export async function processBatch(
     illustrations: PixivIllust[],
+    source: ImageSource = 'ranking',
     onProgress?: (progress: TransferProgress) => void
 ): Promise<TransferResult> {
     const progress: TransferProgress = {
@@ -170,7 +179,7 @@ export async function processBatch(
         }
 
         try {
-            const result = await processIllustration(pid);
+            const result = await processIllustration(pid, source);
 
             if (result.skipped) {
                 progress.skipped++;
@@ -419,7 +428,8 @@ export async function crawlByTag(
         selectedIllusts = filtered;
     }
 
-    return processBatch(selectedIllusts);
+    // Use 'tag' source to store in separate folder
+    return processBatch(selectedIllusts, 'tag');
 }
 
 /**

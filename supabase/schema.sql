@@ -40,6 +40,8 @@ WHERE NOT EXISTS (SELECT 1 FROM crawler_settings LIMIT 1);
 -- Add columns if table already exists (for migration)
 ALTER TABLE crawler_settings ADD COLUMN IF NOT EXISTS crawl_limit INTEGER DEFAULT 10;
 ALTER TABLE crawler_settings ADD COLUMN IF NOT EXISTS r18_crawl_limit INTEGER DEFAULT 10;
+ALTER TABLE crawler_settings ADD COLUMN IF NOT EXISTS tag_search_enabled BOOLEAN DEFAULT FALSE;
+ALTER TABLE crawler_settings ADD COLUMN IF NOT EXISTS tag_search_limit INTEGER DEFAULT 10;
 
 -- Crawler logs table
 CREATE TABLE IF NOT EXISTS crawler_logs (

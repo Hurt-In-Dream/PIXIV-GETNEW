@@ -1,18 +1,18 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Github, Upload, Loader2, Check, AlertCircle, Monitor, Smartphone } from 'lucide-react';
+import { Github, Upload, Loader2, Check, AlertCircle, Monitor, Smartphone, RefreshCw, Settings } from 'lucide-react';
 
 interface SyncStatus {
     configured: boolean;
-    horizontal: { total: number; synced: number };
-    vertical: { total: number; synced: number };
+    horizontal: { total: number; synced: number; github?: number };
+    vertical: { total: number; synced: number; github?: number };
 }
 
 export default function GitHubSync() {
     const [status, setStatus] = useState<SyncStatus | null>(null);
     const [loading, setLoading] = useState(true);
-    const [syncing, setSyncing] = useState<'h' | 'v' | null>(null);
+    const [syncing, setSyncing] = useState<'h' | 'v' | 'config' | null>(null);
     const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
 
     useEffect(() => {
@@ -46,18 +46,48 @@ export default function GitHubSync() {
             const data = await response.json();
 
             if (data.success) {
-                setResult({
-                    success: true,
-                    message: `成功上传 ${data.uploaded} 张${orientation === 'h' ? '横屏' : '竖屏'}图片`,
-                });
-                fetchStatus(); // Refresh status
+                let message = `成功上传 ${data.uploaded} 张${orientation === 'h' ? '横屏' : '竖屏'}图片`;
+                if (data.configUpdate) {
+                    message += `\n${data.configUpdate}`;
+                }
+                setResult({ success: true, message });
+                fetchStatus();
             } else {
                 setResult({
                     success: false,
                     message: data.error || '上传失败',
                 });
             }
-        } catch (error) {
+        } catch {
+            setResult({
+                success: false,
+                message: '网络错误',
+            });
+        } finally {
+            setSyncing(null);
+        }
+    };
+
+    const handleUpdateConfig = async () => {
+        setSyncing('config');
+        setResult(null);
+
+        try {
+            const response = await fetch('/api/github-sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ updateConfig: true }),
+            });
+
+            const data = await response.json();
+            setResult({
+                success: data.success,
+                message: data.message,
+            });
+            if (data.success) {
+                fetchStatus();
+            }
+        } catch {
             setResult({
                 success: false,
                 message: '网络错误',
@@ -103,22 +133,31 @@ export default function GitHubSync() {
 
     return (
         <div className="card-anime p-6">
-            <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 rounded-xl bg-gradient-to-br from-gray-700 to-gray-900">
-                    <Github className="w-5 h-5 text-white" />
+            <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-xl bg-gradient-to-br from-gray-700 to-gray-900">
+                        <Github className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                        <h2 className="text-xl font-bold bg-gradient-to-r from-gray-600 to-gray-800 dark:from-gray-300 dark:to-gray-100 bg-clip-text text-transparent">
+                            GitHub 同步
+                        </h2>
+                        <p className="text-xs text-gray-500">
+                            上传到 EdgeOne_Function_PicAPI
+                        </p>
+                    </div>
                 </div>
-                <div>
-                    <h2 className="text-xl font-bold bg-gradient-to-r from-gray-600 to-gray-800 dark:from-gray-300 dark:to-gray-100 bg-clip-text text-transparent">
-                        GitHub 同步
-                    </h2>
-                    <p className="text-xs text-gray-500">
-                        上传到 EdgeOne_Function_PicAPI
-                    </p>
-                </div>
+                <button
+                    onClick={fetchStatus}
+                    disabled={loading || syncing !== null}
+                    className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                >
+                    <RefreshCw className={`w-5 h-5 text-gray-500 ${loading ? 'animate-spin' : ''}`} />
+                </button>
             </div>
 
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                将排行榜图片同步到 GitHub 仓库，自动编号为 1.webp, 2.webp...
+                将排行榜图片同步到 GitHub 仓库，自动编号并更新 pic.js 配置
             </p>
 
             {/* Status Cards */}
@@ -134,6 +173,11 @@ export default function GitHubSync() {
                     <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
                         {status.horizontal.synced} / {status.horizontal.total}
                     </div>
+                    {status.horizontal.github !== undefined && (
+                        <p className="text-xs text-blue-500 mt-1">
+                            GitHub: {status.horizontal.github} 张
+                        </p>
+                    )}
                     <div className="h-2 bg-blue-200 dark:bg-blue-800 rounded-full mt-2 overflow-hidden">
                         <div
                             className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full transition-all"
@@ -174,6 +218,11 @@ export default function GitHubSync() {
                     <div className="text-2xl font-bold text-green-600 dark:text-green-400">
                         {status.vertical.synced} / {status.vertical.total}
                     </div>
+                    {status.vertical.github !== undefined && (
+                        <p className="text-xs text-green-500 mt-1">
+                            GitHub: {status.vertical.github} 张
+                        </p>
+                    )}
                     <div className="h-2 bg-green-200 dark:bg-green-800 rounded-full mt-2 overflow-hidden">
                         <div
                             className="h-full bg-gradient-to-r from-green-500 to-emerald-500 rounded-full transition-all"
@@ -204,19 +253,38 @@ export default function GitHubSync() {
                 </div>
             </div>
 
+            {/* Update Config Button */}
+            <button
+                onClick={handleUpdateConfig}
+                disabled={syncing !== null}
+                className="w-full mb-4 px-4 py-2 rounded-lg bg-purple-500 hover:bg-purple-600 disabled:bg-gray-400 text-white text-sm font-medium transition-colors flex items-center justify-center gap-2"
+            >
+                {syncing === 'config' ? (
+                    <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        更新中...
+                    </>
+                ) : (
+                    <>
+                        <Settings className="w-4 h-4" />
+                        仅更新 pic.js 配置 (同步max数值)
+                    </>
+                )}
+            </button>
+
             {/* Result Message */}
             {result && (
                 <div className={`p-3 rounded-lg ${result.success
                         ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
                         : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'
                     }`}>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-start gap-2">
                         {result.success ? (
-                            <Check className="w-5 h-5" />
+                            <Check className="w-5 h-5 flex-shrink-0 mt-0.5" />
                         ) : (
-                            <AlertCircle className="w-5 h-5" />
+                            <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
                         )}
-                        <span className="text-sm">{result.message}</span>
+                        <span className="text-sm whitespace-pre-wrap">{result.message}</span>
                     </div>
                 </div>
             )}

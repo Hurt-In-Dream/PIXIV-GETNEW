@@ -1,6 +1,7 @@
 /**
  * GitHub Sync API Route
  * Converts R2 images to WebP and uploads to GitHub repository
+ * Also updates pic.js max values automatically
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -16,6 +17,33 @@ interface SyncResult {
     success: boolean;
     uploaded: number;
     errors: string[];
+}
+
+/**
+ * Get file content from GitHub
+ */
+async function getFileContent(path: string): Promise<{ content: string; sha: string } | null> {
+    try {
+        const response = await fetch(
+            `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}?ref=${GITHUB_BRANCH}`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${GITHUB_TOKEN}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                },
+            }
+        );
+
+        if (response.ok) {
+            const data = await response.json();
+            // GitHub returns base64 encoded content
+            const content = Buffer.from(data.content, 'base64').toString('utf-8');
+            return { content, sha: data.sha };
+        }
+        return null;
+    } catch {
+        return null;
+    }
 }
 
 /**
@@ -136,6 +164,88 @@ async function convertToWebP(imageBuffer: ArrayBuffer): Promise<Buffer> {
 }
 
 /**
+ * Update pic.js with new max values
+ */
+async function updatePicJsConfig(): Promise<{ success: boolean; message: string }> {
+    try {
+        // Get current file counts from GitHub
+        const hCount = await getExistingFileCount('ri/h');
+        const vCount = await getExistingFileCount('ri/v');
+        const r18hCount = await getExistingFileCount('ri/r18/h');
+        const r18vCount = await getExistingFileCount('ri/r18/v');
+        const pidhCount = await getExistingFileCount('ri/pid/h');
+        const pidvCount = await getExistingFileCount('ri/pid/v');
+
+        // Get current pic.js content
+        const fileData = await getFileContent('functions/pic.js');
+        if (!fileData) {
+            return { success: false, message: 'Failed to get pic.js content' };
+        }
+
+        let { content, sha } = fileData;
+
+        // Update max values using regex
+        content = content.replace(
+            /h:\s*{\s*path:\s*'\/ri\/h\/'\s*,\s*max:\s*\d+\s*}/,
+            `h: { path: '/ri/h/', max: ${hCount} }`
+        );
+        content = content.replace(
+            /v:\s*{\s*path:\s*'\/ri\/v\/'\s*,\s*max:\s*\d+\s*}/,
+            `v: { path: '/ri/v/', max: ${vCount} }`
+        );
+        content = content.replace(
+            /r18h:\s*{\s*path:\s*'\/ri\/r18\/h\/'\s*,\s*max:\s*\d+\s*}/,
+            `r18h: { path: '/ri/r18/h/', max: ${r18hCount || 1} }`
+        );
+        content = content.replace(
+            /r18v:\s*{\s*path:\s*'\/ri\/r18\/v\/'\s*,\s*max:\s*\d+\s*}/,
+            `r18v: { path: '/ri/r18/v/', max: ${r18vCount || 1} }`
+        );
+        content = content.replace(
+            /pidh:\s*{\s*path:\s*'\/ri\/pid\/h\/'\s*,\s*max:\s*\d+\s*}/,
+            `pidh: { path: '/ri/pid/h/', max: ${pidhCount || 1} }`
+        );
+        content = content.replace(
+            /pidv:\s*{\s*path:\s*'\/ri\/pid\/v\/'\s*,\s*max:\s*\d+\s*}/,
+            `pidv: { path: '/ri/pid/v/', max: ${pidvCount || 1} }`
+        );
+
+        // Upload updated file
+        const base64Content = Buffer.from(content).toString('base64');
+
+        const response = await fetch(
+            `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/functions/pic.js`,
+            {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${GITHUB_TOKEN}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    message: `Update image counts: h=${hCount}, v=${vCount}`,
+                    content: base64Content,
+                    sha: sha,
+                    branch: GITHUB_BRANCH,
+                }),
+            }
+        );
+
+        if (response.ok) {
+            return {
+                success: true,
+                message: `已更新 pic.js: h=${hCount}, v=${vCount}, r18h=${r18hCount}, r18v=${r18vCount}, pidh=${pidhCount}, pidv=${pidvCount}`
+            };
+        } else {
+            const errorData = await response.json();
+            return { success: false, message: `Failed to update pic.js: ${errorData.message}` };
+        }
+    } catch (error) {
+        return { success: false, message: `Error updating pic.js: ${error}` };
+    }
+}
+
+/**
  * POST /api/github-sync - Sync images to GitHub
  */
 export async function POST(request: NextRequest) {
@@ -148,7 +258,13 @@ export async function POST(request: NextRequest) {
 
     try {
         const body = await request.json();
-        const { orientation = 'h', limit = 10 } = body; // 'h' or 'v'
+        const { orientation = 'h', limit = 10, updateConfig = false } = body;
+
+        // If only updating config
+        if (updateConfig) {
+            const configResult = await updatePicJsConfig();
+            return NextResponse.json(configResult);
+        }
 
         const supabase = createServerClient();
 
@@ -239,11 +355,19 @@ export async function POST(request: NextRequest) {
             }
         }
 
+        // After uploading, update pic.js config
+        let configUpdateMessage = '';
+        if (result.uploaded > 0) {
+            const configResult = await updatePicJsConfig();
+            configUpdateMessage = configResult.message;
+        }
+
         return NextResponse.json({
             success: result.errors.length === 0,
             uploaded: result.uploaded,
             total: images.length,
             errors: result.errors,
+            configUpdate: configUpdateMessage,
         });
     } catch (error) {
         console.error('GitHub sync error:', error);
@@ -304,10 +428,14 @@ export async function GET() {
             .ilike('r2_url', '%/v/%')
             .not('github_synced', 'is', null);
 
+        // Get current GitHub counts
+        const githubH = await getExistingFileCount('ri/h');
+        const githubV = await getExistingFileCount('ri/v');
+
         return NextResponse.json({
             configured: true,
-            horizontal: { total: totalH || 0, synced: syncedH || 0 },
-            vertical: { total: totalV || 0, synced: syncedV || 0 },
+            horizontal: { total: totalH || 0, synced: syncedH || 0, github: githubH },
+            vertical: { total: totalV || 0, synced: syncedV || 0, github: githubV },
         });
     } catch (error) {
         return NextResponse.json(

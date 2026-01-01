@@ -35,6 +35,10 @@ export interface TransferResult {
 const BATCH_SIZE = 5;
 const DELAY_BETWEEN_DOWNLOADS = 500; // ms
 
+// Minimum resolution for "Wallpaper Quality"
+const MIN_WIDTH = 1200;
+const MIN_HEIGHT = 1200;
+
 /**
  * Check if a PID already exists in database
  */
@@ -312,6 +316,11 @@ export async function crawlRanking(
                 continue;
             }
 
+            // Resolution check for high-quality wallpaper
+            if (illust.width < MIN_WIDTH && illust.height < MIN_HEIGHT) {
+                continue;
+            }
+
             const ratio = illust.width / illust.height;
 
             if (ratio > 1.0) {
@@ -405,6 +414,11 @@ export async function crawlByTag(
             if (await shouldSkipByTags(illust.tags, skipTags)) continue;
             if (!illust.width || !illust.height) continue;
 
+            // Resolution check for high-quality wallpaper
+            if (illust.width < MIN_WIDTH && illust.height < MIN_HEIGHT) {
+                continue;
+            }
+
             const ratio = illust.width / illust.height;
 
             if (ratio > 1.0 && horizontalIllusts.length < horizontalTarget) {
@@ -434,13 +448,17 @@ export async function crawlByTag(
 
 /**
  * Crawl and transfer related works for a PID
+ * @param pid - Original Pixiv illustration ID
+ * @param limit - Number of related works to fetch
+ * @param source - 'ranking', 'tag' or 'pid' to determine storage folder
  */
 export async function crawlRelated(
     pid: number,
-    limit: number = BATCH_SIZE
+    limit: number = BATCH_SIZE,
+    source: ImageSource = 'pid'
 ): Promise<TransferResult> {
     // First process the original PID
-    const originalResult = await processIllustration(pid);
+    const originalResult = await processIllustration(pid, source);
 
     // Then get related works
     const result = await getRelatedWorks(pid, limit);
@@ -460,7 +478,7 @@ export async function crawlRelated(
     }
 
     const batch = result.illustrations.slice(0, limit);
-    const batchResult = await processBatch(batch);
+    const batchResult = await processBatch(batch, source);
 
     // Combine results
     batchResult.progress.total += 1;

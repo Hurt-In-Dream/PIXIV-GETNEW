@@ -35,6 +35,8 @@ your-r2-bucket/
 ├── R18/v/                # R18排行榜竖屏
 ├── tag/h/                # 标签搜索横屏
 ├── tag/v/                # 标签搜索竖屏
+├── pid/h/                # PID抓取横屏
+├── pid/v/                # PID抓取竖屏
 └── R18/tag/h/, R18/tag/v/   # R18标签搜索
 ```
 

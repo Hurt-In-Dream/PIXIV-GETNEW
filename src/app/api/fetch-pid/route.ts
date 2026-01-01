@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
             });
         } else {
             // Just fetch the single PID
-            const result = await processIllustration(numPid);
+            const result = await processIllustration(numPid, 'pid');
             return NextResponse.json({
                 success: result.success,
                 skipped: result.skipped,

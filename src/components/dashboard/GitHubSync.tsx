@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Github, Upload, Loader2, Check, AlertCircle, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { Github, Upload, Loader2, Check, AlertCircle, RefreshCw, ChevronDown, ChevronUp, Zap } from 'lucide-react';
+import { addActivityLog } from './LogViewer';
 
 interface CategoryStatus {
     total: number;
@@ -16,6 +17,8 @@ interface SyncStatus {
 
 type SyncCategory = 'h' | 'v' | 'r18h' | 'r18v' | 'pidh' | 'pidv' | 'tagh' | 'tagv';
 
+const ALL_CATEGORIES: SyncCategory[] = ['h', 'v', 'r18h', 'r18v', 'pidh', 'pidv', 'tagh', 'tagv'];
+
 const CATEGORY_CONFIG: Record<SyncCategory, { label: string; color: string; bgColor: string }> = {
     h: { label: '排行榜横屏', color: 'text-blue-600', bgColor: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800' },
     v: { label: '排行榜竖屏', color: 'text-green-600', bgColor: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' },
@@ -27,12 +30,15 @@ const CATEGORY_CONFIG: Record<SyncCategory, { label: string; color: string; bgCo
     tagv: { label: '标签竖屏', color: 'text-violet-600', bgColor: 'bg-violet-50 dark:bg-violet-900/20 border-violet-200 dark:border-violet-800' },
 };
 
+const BATCH_SIZE = 50;
+
 export default function GitHubSync() {
     const [status, setStatus] = useState<SyncStatus | null>(null);
     const [loading, setLoading] = useState(true);
-    const [syncing, setSyncing] = useState<SyncCategory | null>(null);
+    const [syncing, setSyncing] = useState<SyncCategory | 'all' | null>(null);
     const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
     const [expanded, setExpanded] = useState(false);
+    const [syncProgress, setSyncProgress] = useState<string>('');
 
     useEffect(() => {
         fetchStatus();
@@ -51,39 +57,126 @@ export default function GitHubSync() {
         }
     };
 
+    // Sync a single category until complete
+    const syncCategoryUntilComplete = async (category: SyncCategory): Promise<{ uploaded: number; error?: string }> => {
+        let totalUploaded = 0;
+        let hasMore = true;
+
+        while (hasMore) {
+            try {
+                const response = await fetch('/api/github-sync', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ category, limit: BATCH_SIZE }),
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    if (data.uploaded > 0) {
+                        totalUploaded += data.uploaded;
+                        addActivityLog('success', `[GitHub同步] ${CATEGORY_CONFIG[category].label}: 上传 ${data.uploaded} 张 (共 ${totalUploaded} 张)`);
+                        setSyncProgress(`${CATEGORY_CONFIG[category].label}: 已上传 ${totalUploaded} 张...`);
+                    } else {
+                        hasMore = false;
+                    }
+                } else {
+                    addActivityLog('error', `[GitHub同步] ${CATEGORY_CONFIG[category].label}: ${data.error}`);
+                    return { uploaded: totalUploaded, error: data.error };
+                }
+            } catch {
+                addActivityLog('error', `[GitHub同步] ${CATEGORY_CONFIG[category].label}: 网络错误`);
+                return { uploaded: totalUploaded, error: '网络错误' };
+            }
+        }
+
+        return { uploaded: totalUploaded };
+    };
+
     const handleSync = async (category: SyncCategory) => {
         setSyncing(category);
         setResult(null);
+        addActivityLog('info', `[GitHub同步] 开始同步 ${CATEGORY_CONFIG[category].label}...`);
 
-        try {
-            const response = await fetch('/api/github-sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ category, limit: 10 }),
-            });
+        const { uploaded, error } = await syncCategoryUntilComplete(category);
 
-            const data = await response.json();
-
-            if (data.success) {
-                setResult({
-                    success: true,
-                    message: `成功上传 ${data.uploaded} 张${data.category}图片`,
-                });
-                fetchStatus();
-            } else {
-                setResult({
-                    success: false,
-                    message: data.error || '上传失败',
-                });
-            }
-        } catch {
+        if (error) {
             setResult({
                 success: false,
-                message: '网络错误',
+                message: `${CATEGORY_CONFIG[category].label}: ${error}`,
             });
-        } finally {
-            setSyncing(null);
+        } else {
+            setResult({
+                success: true,
+                message: uploaded > 0
+                    ? `${CATEGORY_CONFIG[category].label}: 成功上传 ${uploaded} 张图片`
+                    : `${CATEGORY_CONFIG[category].label}: 没有需要同步的图片`,
+            });
+            addActivityLog('success', `[GitHub同步] ${CATEGORY_CONFIG[category].label} 同步完成，共 ${uploaded} 张`);
         }
+
+        fetchStatus();
+        setSyncing(null);
+        setSyncProgress('');
+    };
+
+    const handleSyncAll = async () => {
+        setSyncing('all');
+        setResult(null);
+        setSyncProgress('');
+        addActivityLog('info', '[GitHub同步] 开始一键同步全部分类...');
+
+        let totalUploaded = 0;
+        const errors: string[] = [];
+
+        for (const category of ALL_CATEGORIES) {
+            setSyncProgress(`正在同步 ${CATEGORY_CONFIG[category].label}...`);
+            addActivityLog('info', `[GitHub同步] 开始同步 ${CATEGORY_CONFIG[category].label}...`);
+
+            const { uploaded, error } = await syncCategoryUntilComplete(category);
+
+            if (uploaded > 0) {
+                totalUploaded += uploaded;
+            }
+
+            if (error) {
+                errors.push(`${CATEGORY_CONFIG[category].label}: ${error}`);
+            }
+        }
+
+        setSyncProgress('');
+
+        if (errors.length === 0) {
+            setResult({
+                success: true,
+                message: totalUploaded > 0
+                    ? `全部同步完成！共上传 ${totalUploaded} 张图片`
+                    : '全部分类已同步完成，没有待上传的图片',
+            });
+            addActivityLog('success', `[GitHub同步] 全部同步完成，共上传 ${totalUploaded} 张图片`);
+        } else {
+            setResult({
+                success: false,
+                message: `同步完成，上传 ${totalUploaded} 张，但有错误: ${errors.join('; ')}`,
+            });
+            addActivityLog('warning', `[GitHub同步] 同步完成但有错误: ${errors.join('; ')}`);
+        }
+
+        fetchStatus();
+        setSyncing(null);
+    };
+
+    // Calculate total pending
+    const getTotalPending = () => {
+        if (!status?.categories) return 0;
+        let total = 0;
+        for (const category of ALL_CATEGORIES) {
+            const catStatus = status.categories[category];
+            if (catStatus) {
+                total += catStatus.total - catStatus.synced;
+            }
+        }
+        return total;
     };
 
     if (loading) {
@@ -115,10 +208,9 @@ export default function GitHubSync() {
         );
     }
 
-    // Main categories (ranking)
     const mainCategories: SyncCategory[] = ['h', 'v'];
-    // Extra categories
     const extraCategories: SyncCategory[] = ['r18h', 'r18v', 'pidh', 'pidv', 'tagh', 'tagv'];
+    const totalPending = getTotalPending();
 
     const renderCategoryCard = (category: SyncCategory) => {
         const config = CATEGORY_CONFIG[category];
@@ -158,7 +250,7 @@ export default function GitHubSync() {
                     ) : (
                         <Upload className="w-3 h-3" />
                     )}
-                    {pending > 0 ? `同步 (${pending}待传)` : '已同步'}
+                    {pending > 0 ? `同步全部 (${pending}张)` : '已同步'}
                 </button>
             </div>
         );
@@ -188,6 +280,25 @@ export default function GitHubSync() {
                     <RefreshCw className={`w-5 h-5 text-gray-500 ${loading ? 'animate-spin' : ''}`} />
                 </button>
             </div>
+
+            {/* Sync All Button */}
+            <button
+                onClick={handleSyncAll}
+                disabled={syncing !== null || totalPending === 0}
+                className="w-full mb-4 px-4 py-3 rounded-xl bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 hover:from-indigo-600 hover:via-purple-600 hover:to-pink-600 disabled:from-gray-400 disabled:via-gray-400 disabled:to-gray-400 text-white font-medium transition-all flex items-center justify-center gap-2 shadow-lg hover:shadow-purple-500/25"
+            >
+                {syncing === 'all' ? (
+                    <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        {syncProgress || '同步中...'}
+                    </>
+                ) : (
+                    <>
+                        <Zap className="w-5 h-5" />
+                        一键同步全部 {totalPending > 0 && `(${totalPending} 张待传)`}
+                    </>
+                )}
+            </button>
 
             {/* Main Categories (Ranking) */}
             <div className="grid grid-cols-2 gap-3 mb-3">

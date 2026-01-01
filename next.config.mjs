@@ -14,6 +14,14 @@ const nextConfig = {
                 protocol: 'https',
                 hostname: '**.r2.cloudflarestorage.com',
             },
+            {
+                protocol: 'https',
+                hostname: 'pixiv.re',
+            },
+            {
+                protocol: 'https',
+                hostname: 'pixiv.cat',
+            },
         ],
     },
     experimental: {

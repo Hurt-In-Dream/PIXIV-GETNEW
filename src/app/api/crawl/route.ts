@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
         const { mode = 'ranking', tag, limit = 5 } = body;
 
         if (mode === 'tag' && tag) {
-            const result = await crawlByTag(tag, Math.min(limit, 10));
+            const result = await crawlByTag(tag, Math.min(limit, 20));
             return NextResponse.json({
                 success: result.success,
                 progress: result.progress,
@@ -38,16 +38,33 @@ export async function POST(request: NextRequest) {
                 .limit(1)
                 .single();
 
-            const isR18 = settings && typeof settings === 'object' && 'r18_enabled' in settings
+            const isR18Enabled = settings && typeof settings === 'object' && 'r18_enabled' in settings
                 ? (settings as { r18_enabled: boolean }).r18_enabled
                 : false;
-            const rankingMode = isR18 ? 'daily_r18' : 'daily';
-            const result = await crawlRanking(rankingMode, Math.min(limit, 10));
+
+            // Always crawl normal ranking
+            const halfLimit = Math.ceil(Math.min(limit, 50) / 2);
+            const normalResult = await crawlRanking('daily', isR18Enabled ? halfLimit : Math.min(limit, 50));
+
+            // Also crawl R18 if enabled
+            let r18Result = null;
+            if (isR18Enabled) {
+                r18Result = await crawlRanking('daily_r18', halfLimit);
+            }
+
+            // Combine progress
+            const combinedProgress = {
+                total: normalResult.progress.total + (r18Result?.progress.total || 0),
+                processed: normalResult.progress.processed + (r18Result?.progress.processed || 0),
+                success: normalResult.progress.success + (r18Result?.progress.success || 0),
+                failed: normalResult.progress.failed + (r18Result?.progress.failed || 0),
+                skipped: normalResult.progress.skipped + (r18Result?.progress.skipped || 0),
+            };
 
             return NextResponse.json({
-                success: result.success,
-                progress: result.progress,
-                error: result.error,
+                success: normalResult.success && (r18Result?.success ?? true),
+                progress: combinedProgress,
+                error: normalResult.error || r18Result?.error,
             });
         }
     } catch (error) {

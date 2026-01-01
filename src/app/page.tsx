@@ -14,6 +14,8 @@ interface Settings {
     cron_expression: string;
     tags: string[];
     r18_enabled: boolean;
+    crawl_limit: number;
+    r18_crawl_limit: number;
 }
 
 export default function Dashboard() {

@@ -27,13 +27,19 @@ CREATE TABLE IF NOT EXISTS crawler_settings (
   cron_expression TEXT DEFAULT '0 0 * * *',
   tags TEXT[] DEFAULT ARRAY['二次元', '风景', 'イラスト'],
   r18_enabled BOOLEAN DEFAULT FALSE,
+  crawl_limit INTEGER DEFAULT 10,
+  r18_crawl_limit INTEGER DEFAULT 10,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Insert default settings if not exists
-INSERT INTO crawler_settings (cron_expression, tags, r18_enabled)
-SELECT '0 0 * * *', ARRAY['二次元', '風景', 'イラスト'], FALSE
+INSERT INTO crawler_settings (cron_expression, tags, r18_enabled, crawl_limit, r18_crawl_limit)
+SELECT '0 0 * * *', ARRAY['二次元', '風景', 'イラスト'], FALSE, 10, 10
 WHERE NOT EXISTS (SELECT 1 FROM crawler_settings LIMIT 1);
+
+-- Add columns if table already exists (for migration)
+ALTER TABLE crawler_settings ADD COLUMN IF NOT EXISTS crawl_limit INTEGER DEFAULT 10;
+ALTER TABLE crawler_settings ADD COLUMN IF NOT EXISTS r18_crawl_limit INTEGER DEFAULT 10;
 
 -- Crawler logs table
 CREATE TABLE IF NOT EXISTS crawler_logs (

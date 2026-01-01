@@ -132,18 +132,18 @@ export default function ImageGallery() {
                                 className="group relative aspect-square rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-800"
                             >
                                 {/* Image */}
-                                {image.r2_url ? (
-                                    <img
-                                        src={image.r2_url}
-                                        alt={image.title}
-                                        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
-                                        loading="lazy"
-                                    />
-                                ) : (
-                                    <div className="w-full h-full flex items-center justify-center">
-                                        <Images className="w-8 h-8 text-gray-400" />
-                                    </div>
-                                )}
+                                <img
+                                    src={image.r2_url || `https://pixiv.re/${image.pid}.jpg`}
+                                    alt={image.title}
+                                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
+                                    loading="lazy"
+                                    onError={(e) => {
+                                        const target = e.target as HTMLImageElement;
+                                        if (target.src !== `https://pixiv.re/${image.pid}.jpg`) {
+                                            target.src = `https://pixiv.re/${image.pid}.jpg`;
+                                        }
+                                    }}
+                                />
 
                                 {/* Overlay */}
                                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">

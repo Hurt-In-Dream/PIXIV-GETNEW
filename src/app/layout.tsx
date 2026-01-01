@@ -8,7 +8,7 @@ export const metadata: Metadata = {
     title: "Pixiv-Vercel-Sync | 图片自动同步系统",
     description: "A Pixiv image auto-scraping and distribution system deployed on Vercel",
     icons: {
-        icon: "/favicon.ico",
+        icon: "/wzk116.png",
     },
 };
 

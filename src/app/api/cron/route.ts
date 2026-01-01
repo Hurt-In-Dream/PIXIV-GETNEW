@@ -42,19 +42,26 @@ export async function GET(request: NextRequest) {
 
         const tags = settings?.tags || ['イラスト'];
         const r18Enabled = settings?.r18_enabled || false;
+        const crawlLimit = settings?.crawl_limit || 10;
+        const r18CrawlLimit = settings?.r18_crawl_limit || 10;
 
-        // Crawl ranking first (portrait mode for background API use)
-        // Fetch 15 images with portrait preference for suitability as backgrounds
-        const rankingMode = r18Enabled ? 'daily_r18' : 'daily';
-        const rankingResult = await crawlRanking(rankingMode, 15, true);
+        // Crawl normal ranking (always)
+        const normalResult = await crawlRanking('daily', crawlLimit, true);
 
-        // Then crawl by tags (one random tag) with portrait preference
+        // Crawl R18 ranking if enabled (in addition to normal)
+        let r18Result = null;
+        if (r18Enabled) {
+            r18Result = await crawlRanking('daily_r18', r18CrawlLimit, true);
+        }
+
+        // Then crawl by tags (one random tag)
         const randomTag = tags[Math.floor(Math.random() * tags.length)];
-        const tagResult = await crawlByTag(randomTag, 10);
+        const tagResult = await crawlByTag(randomTag, crawlLimit);
 
         return NextResponse.json({
             success: true,
-            ranking: rankingResult.progress,
+            ranking: normalResult.progress,
+            r18Ranking: r18Result?.progress || null,
             tag: {
                 tag: randomTag,
                 ...tagResult.progress,

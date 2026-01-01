@@ -21,6 +21,7 @@ export async function GET(request: NextRequest) {
             .from('pixiv_images')
             .select('*', { count: 'exact' })
             .order('created_at', { ascending: false })
+            .not('r2_url', 'ilike', '%R18/%')
             .range(offset, offset + limit - 1);
 
         if (search) {

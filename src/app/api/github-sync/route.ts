@@ -36,13 +36,13 @@ const SYNC_CONFIG: Record<SyncCategory, {
     },
     r18h: {
         githubDir: 'ri/r18/h',
-        r2Pattern: '%R18/%/h/%',
+        r2Pattern: '%R18/h/%',
         r2Exclude: [],
         label: 'R18横屏',
     },
     r18v: {
         githubDir: 'ri/r18/v',
-        r2Pattern: '%R18/%/v/%',
+        r2Pattern: '%R18/v/%',
         r2Exclude: [],
         label: 'R18竖屏',
     },

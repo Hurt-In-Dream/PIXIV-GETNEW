@@ -22,6 +22,9 @@ PIXIV_PHPSESSID=你的PHPSESSID
 
 # 定时任务安全 (可选但推荐)
 CRON_SECRET=一串随机字符
+
+# 控制台访问密码 (可选，留空则无需密码)
+DASHBOARD_PASSWORD=你的访问密码
 ```
 
 ---
@@ -111,7 +114,28 @@ Authorization: Bearer <YOUR_CRON_SECRET>
 
 ---
 
-## 5. 配置到 Vercel
+## 5. 控制台访问密码 (可选)
+
+### DASHBOARD_PASSWORD
+- 用于保护管理面板，防止未授权访问
+- **可选配置**: 如果不设置此变量，则无需密码即可访问
+- 密码在服务端验证，无法通过前端破解
+- 登录后会设置 HTTP-only Cookie，有效期 7 天
+
+**工作原理:**
+1. 用户访问网站时，会检查是否已登录
+2. 未登录时显示密码输入页面
+3. 密码在服务端验证，正确后设置加密 Cookie
+4. Cookie 为 HTTP-only，JavaScript 无法读取，安全性高
+
+**示例:**
+```
+DASHBOARD_PASSWORD=MySecretPassword123
+```
+
+---
+
+## 6. 配置到 Vercel
 
 1. 登录 [Vercel](https://vercel.com/)
 2. 进入你的项目 -> Settings -> Environment Variables
@@ -120,3 +144,4 @@ Authorization: Bearer <YOUR_CRON_SECRET>
 5. **重新部署** 项目以使变量生效
 
 > 💡 提示: 可以先在本地创建 `.env` 文件测试，然后再同步到 Vercel。
+

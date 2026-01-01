@@ -9,7 +9,8 @@ import {
     LogViewer,
     SkipTagsManager
 } from '@/components/dashboard';
-import { Sparkles, Github, Heart } from 'lucide-react';
+import LoginScreen from '@/components/LoginScreen';
+import { Sparkles, Github, LogOut, Loader2 } from 'lucide-react';
 
 interface Settings {
     cron_expression: string;
@@ -24,10 +25,44 @@ interface Settings {
 export default function Dashboard() {
     const [settings, setSettings] = useState<Settings | null>(null);
     const [refreshKey, setRefreshKey] = useState(0);
+    const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+    const [loggingOut, setLoggingOut] = useState(false);
 
     useEffect(() => {
-        fetchSettings();
+        checkAuth();
     }, []);
+
+    const checkAuth = async () => {
+        try {
+            const response = await fetch('/api/auth');
+            const data = await response.json();
+            setIsAuthenticated(data.authenticated);
+            if (data.authenticated) {
+                fetchSettings();
+            }
+        } catch (error) {
+            console.error('Auth check failed:', error);
+            setIsAuthenticated(false);
+        }
+    };
+
+    const handleLoginSuccess = () => {
+        setIsAuthenticated(true);
+        fetchSettings();
+    };
+
+    const handleLogout = async () => {
+        setLoggingOut(true);
+        try {
+            await fetch('/api/auth', { method: 'DELETE' });
+            setIsAuthenticated(false);
+            setSettings(null);
+        } catch (error) {
+            console.error('Logout failed:', error);
+        } finally {
+            setLoggingOut(false);
+        }
+    };
 
     const fetchSettings = async () => {
         try {
@@ -43,6 +78,20 @@ export default function Dashboard() {
         fetchSettings();
         setRefreshKey(k => k + 1);
     };
+
+    // Loading state
+    if (isAuthenticated === null) {
+        return (
+            <div className="min-h-screen flex items-center justify-center">
+                <Loader2 className="w-8 h-8 animate-spin text-purple-500" />
+            </div>
+        );
+    }
+
+    // Login screen
+    if (!isAuthenticated) {
+        return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
+    }
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/20 to-gray-900">
@@ -67,14 +116,28 @@ export default function Dashboard() {
                             </div>
                         </div>
 
-                        <a
-                            href="https://github.com"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="p-2 rounded-lg hover:bg-white/5 transition-colors"
-                        >
-                            <Github className="w-5 h-5 text-gray-400 hover:text-white transition-colors" />
-                        </a>
+                        <div className="flex items-center gap-2">
+                            <a
+                                href="https://github.com"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-2 rounded-lg hover:bg-white/5 transition-colors"
+                            >
+                                <Github className="w-5 h-5 text-gray-400 hover:text-white transition-colors" />
+                            </a>
+                            <button
+                                onClick={handleLogout}
+                                disabled={loggingOut}
+                                className="p-2 rounded-lg hover:bg-white/5 transition-colors"
+                                title="退出登录"
+                            >
+                                {loggingOut ? (
+                                    <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />
+                                ) : (
+                                    <LogOut className="w-5 h-5 text-gray-400 hover:text-red-400 transition-colors" />
+                                )}
+                            </button>
+                        </div>
                     </div>
                 </div>
             </header>
@@ -100,47 +163,40 @@ export default function Dashboard() {
                     />
                     <StatCard
                         label="R-18"
-                        value={settings?.r18_enabled ? '开启' : '关闭'}
-                        color="from-rose-500 to-red-500"
+                        value={settings?.r18_enabled ? '已启用' : '已禁用'}
+                        color={settings?.r18_enabled ? 'from-rose-500 to-red-500' : 'from-gray-500 to-gray-600'}
                     />
                 </div>
 
                 {/* Dashboard Grid */}
-                <div className="grid lg:grid-cols-3 gap-6 mb-8">
-                    {/* Left Column - Settings */}
-                    <div className="lg:col-span-1 space-y-6">
-                        {settings && (
-                            <SettingsPanel
-                                initialSettings={settings}
-                                onSave={handleSettingsSave}
-                            />
-                        )}
-                    </div>
-
-                    {/* Right Column - Actions */}
-                    <div className="lg:col-span-2 space-y-6">
-                        <div className="grid md:grid-cols-2 gap-6">
-                            <ManualTrigger />
-                            <PidFetcher />
-                        </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                    <SettingsPanel
+                        initialSettings={settings || undefined}
+                        onSave={handleSettingsSave}
+                    />
+                    <div className="space-y-6">
+                        <ManualTrigger key={refreshKey} />
+                        <PidFetcher />
                     </div>
                 </div>
 
-                {/* Log Viewer and Skip Tags */}
-                <div className="grid lg:grid-cols-2 gap-6 mb-8">
+                {/* Logs and Skip Tags */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
                     <LogViewer />
                     <SkipTagsManager />
                 </div>
 
                 {/* Image Gallery */}
-                <ImageGallery key={refreshKey} />
+                <ImageGallery />
             </main>
 
             {/* Footer */}
-            <footer className="container mx-auto px-4 py-8 text-center">
-                <p className="text-sm text-gray-500 flex items-center justify-center gap-2">
-                    Made with <Heart className="w-4 h-4 text-pink-500 animate-pulse" /> for anime lovers
-                </p>
+            <footer className="border-t border-white/5 py-6 mt-8">
+                <div className="container mx-auto px-4 text-center text-sm text-gray-500">
+                    <p className="flex items-center justify-center gap-1">
+                        Made with <span className="text-pink-500">❤</span> for anime lovers
+                    </p>
+                </div>
             </footer>
         </div>
     );
@@ -149,16 +205,15 @@ export default function Dashboard() {
 function StatCard({
     label,
     value,
-    color
+    color,
 }: {
     label: string;
     value: string;
     color: string;
 }) {
     return (
-        <div className="relative overflow-hidden rounded-xl bg-gray-800/50 backdrop-blur-sm border border-white/5 p-4">
-            <div className={`absolute top-0 right-0 w-20 h-20 bg-gradient-to-br ${color} opacity-10 rounded-full blur-2xl`} />
-            <p className="text-xs text-gray-400 mb-1">{label}</p>
+        <div className="card-anime p-4">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</p>
             <p className={`text-lg font-bold bg-gradient-to-r ${color} bg-clip-text text-transparent truncate`}>
                 {value}
             </p>

@@ -1,7 +1,7 @@
 /**
  * GitHub Sync API Route
  * Converts R2 images to WebP and uploads to GitHub repository
- * Supports all folders: h, v, r18/h, r18/v, pid/h, pid/v, tag/h, tag/v
+ * Uses batch commit to avoid multiple deployments
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -78,18 +78,81 @@ interface SyncResult {
     errors: string[];
 }
 
+interface FileToUpload {
+    path: string;
+    content: string; // base64
+    imageId: string;
+    pid: number;
+}
+
 /**
- * Get file SHA if it exists (needed for updating files)
+ * Get the latest commit SHA for the branch
  */
-async function getFileSha(path: string): Promise<string | null> {
+async function getLatestCommitSha(): Promise<string | null> {
     try {
         const response = await fetch(
-            `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}?ref=${GITHUB_BRANCH}`,
+            `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/git/ref/heads/${GITHUB_BRANCH}`,
             {
                 headers: {
                     'Authorization': `Bearer ${GITHUB_TOKEN}`,
                     'Accept': 'application/vnd.github.v3+json',
                 },
+            }
+        );
+
+        if (response.ok) {
+            const data = await response.json();
+            return data.object.sha;
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Get the tree SHA for a commit
+ */
+async function getTreeSha(commitSha: string): Promise<string | null> {
+    try {
+        const response = await fetch(
+            `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/git/commits/${commitSha}`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${GITHUB_TOKEN}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                },
+            }
+        );
+
+        if (response.ok) {
+            const data = await response.json();
+            return data.tree.sha;
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Create a blob for a file
+ */
+async function createBlob(content: string): Promise<string | null> {
+    try {
+        const response = await fetch(
+            `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/git/blobs`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${GITHUB_TOKEN}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    content,
+                    encoding: 'base64',
+                }),
             }
         );
 
@@ -104,43 +167,164 @@ async function getFileSha(path: string): Promise<string | null> {
 }
 
 /**
- * Upload a file to GitHub
+ * Create a tree with multiple files
  */
-async function uploadToGitHub(
-    content: string,
-    path: string,
-    message: string
-): Promise<boolean> {
+async function createTree(
+    baseTreeSha: string,
+    files: { path: string; blobSha: string }[]
+): Promise<string | null> {
     try {
-        const sha = await getFileSha(path);
-
-        const body: Record<string, string> = {
-            message,
-            content,
-            branch: GITHUB_BRANCH,
-        };
-
-        if (sha) {
-            body.sha = sha;
-        }
+        const tree = files.map(file => ({
+            path: file.path,
+            mode: '100644' as const,
+            type: 'blob' as const,
+            sha: file.blobSha,
+        }));
 
         const response = await fetch(
-            `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`,
+            `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/git/trees`,
             {
-                method: 'PUT',
+                method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${GITHUB_TOKEN}`,
                     'Accept': 'application/vnd.github.v3+json',
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(body),
+                body: JSON.stringify({
+                    base_tree: baseTreeSha,
+                    tree,
+                }),
+            }
+        );
+
+        if (response.ok) {
+            const data = await response.json();
+            return data.sha;
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Create a commit
+ */
+async function createCommit(
+    message: string,
+    treeSha: string,
+    parentSha: string
+): Promise<string | null> {
+    try {
+        const response = await fetch(
+            `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/git/commits`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${GITHUB_TOKEN}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    message,
+                    tree: treeSha,
+                    parents: [parentSha],
+                }),
+            }
+        );
+
+        if (response.ok) {
+            const data = await response.json();
+            return data.sha;
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Update branch reference to new commit
+ */
+async function updateBranchRef(commitSha: string): Promise<boolean> {
+    try {
+        const response = await fetch(
+            `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/git/refs/heads/${GITHUB_BRANCH}`,
+            {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${GITHUB_TOKEN}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    sha: commitSha,
+                }),
             }
         );
 
         return response.ok;
-    } catch (error) {
-        console.error('GitHub upload error:', error);
+    } catch {
         return false;
+    }
+}
+
+/**
+ * Batch upload files with single commit
+ */
+async function batchUploadToGitHub(
+    files: FileToUpload[],
+    commitMessage: string
+): Promise<{ success: boolean; error?: string }> {
+    try {
+        // Get latest commit SHA
+        const latestCommitSha = await getLatestCommitSha();
+        if (!latestCommitSha) {
+            return { success: false, error: 'Failed to get latest commit' };
+        }
+
+        // Get tree SHA
+        const treeSha = await getTreeSha(latestCommitSha);
+        if (!treeSha) {
+            return { success: false, error: 'Failed to get tree SHA' };
+        }
+
+        // Create blobs for all files
+        const blobResults: { path: string; blobSha: string }[] = [];
+        for (const file of files) {
+            const blobSha = await createBlob(file.content);
+            if (!blobSha) {
+                console.error(`Failed to create blob for ${file.path}`);
+                continue;
+            }
+            blobResults.push({ path: file.path, blobSha });
+        }
+
+        if (blobResults.length === 0) {
+            return { success: false, error: 'Failed to create any blobs' };
+        }
+
+        // Create new tree
+        const newTreeSha = await createTree(treeSha, blobResults);
+        if (!newTreeSha) {
+            return { success: false, error: 'Failed to create tree' };
+        }
+
+        // Create commit
+        const newCommitSha = await createCommit(commitMessage, newTreeSha, latestCommitSha);
+        if (!newCommitSha) {
+            return { success: false, error: 'Failed to create commit' };
+        }
+
+        // Update branch reference
+        const updated = await updateBranchRef(newCommitSha);
+        if (!updated) {
+            return { success: false, error: 'Failed to update branch' };
+        }
+
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: String(error) };
     }
 }
 
@@ -208,7 +392,6 @@ async function getCategoryCount(supabase: ReturnType<typeof createServerClient>,
 
     const { count: total } = await query;
 
-    // Get synced count
     let syncedQuery = supabase
         .from('pixiv_images')
         .select('*', { count: 'exact', head: true })
@@ -226,7 +409,7 @@ async function getCategoryCount(supabase: ReturnType<typeof createServerClient>,
 }
 
 /**
- * POST /api/github-sync - Sync images to GitHub
+ * POST /api/github-sync - Sync images to GitHub with batch commit
  */
 export async function POST(request: NextRequest) {
     if (!GITHUB_TOKEN) {
@@ -258,7 +441,7 @@ export async function POST(request: NextRequest) {
             .ilike('r2_url', config.r2Pattern)
             .is('github_synced', null)
             .order('created_at', { ascending: true })
-            .limit(Math.min(limit, 20));
+            .limit(Math.min(limit, 50));
 
         for (const exclude of config.r2Exclude || []) {
             query = query.not('r2_url', 'ilike', exclude);
@@ -287,6 +470,10 @@ export async function POST(request: NextRequest) {
         // Get starting number
         let currentNum = await getExistingFileCount(config.githubDir);
 
+        // Prepare all files
+        const filesToUpload: FileToUpload[] = [];
+        const processedImages: { id: string; pid: number }[] = [];
+
         for (const image of images) {
             try {
                 if (!image.r2_url) continue;
@@ -305,28 +492,43 @@ export async function POST(request: NextRequest) {
                 const filename = `${currentNum}.webp`;
                 const path = `${config.githubDir}/${filename}`;
 
-                const uploaded = await uploadToGitHub(
-                    base64Content,
+                filesToUpload.push({
                     path,
-                    `Add ${config.label} ${filename} from PID ${image.pid}`
-                );
+                    content: base64Content,
+                    imageId: image.id,
+                    pid: image.pid,
+                });
 
-                if (uploaded) {
-                    await supabase
-                        .from('pixiv_images')
-                        .update({ github_synced: new Date().toISOString() })
-                        .eq('id', image.id);
-
-                    result.uploaded++;
-                } else {
-                    result.errors.push(`Failed to upload: ${image.pid}`);
-                }
-
-                // Rate limiting
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                processedImages.push({ id: image.id, pid: image.pid });
             } catch (err) {
                 result.errors.push(`Error processing ${image.pid}: ${err}`);
             }
+        }
+
+        if (filesToUpload.length === 0) {
+            return NextResponse.json({
+                success: false,
+                message: '没有成功处理任何图片',
+                uploaded: 0,
+                errors: result.errors,
+            });
+        }
+
+        // Batch upload with single commit
+        const commitMessage = `Add ${filesToUpload.length} ${config.label} images`;
+        const uploadResult = await batchUploadToGitHub(filesToUpload, commitMessage);
+
+        if (uploadResult.success) {
+            // Mark all as synced
+            for (const img of processedImages) {
+                await supabase
+                    .from('pixiv_images')
+                    .update({ github_synced: new Date().toISOString() })
+                    .eq('id', img.id);
+            }
+            result.uploaded = filesToUpload.length;
+        } else {
+            result.errors.push(uploadResult.error || 'Batch upload failed');
         }
 
         return NextResponse.json({
@@ -356,7 +558,6 @@ export async function GET() {
     try {
         const supabase = createServerClient();
 
-        // Get counts for all categories
         const categories: Record<string, { total: number; synced: number; github: number }> = {};
 
         for (const [key, config] of Object.entries(SYNC_CONFIG)) {

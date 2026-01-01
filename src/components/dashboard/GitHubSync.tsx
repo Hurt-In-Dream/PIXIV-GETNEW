@@ -30,8 +30,6 @@ const CATEGORY_CONFIG: Record<SyncCategory, { label: string; color: string; bgCo
     tagv: { label: '标签竖屏', color: 'text-violet-600', bgColor: 'bg-violet-50 dark:bg-violet-900/20 border-violet-200 dark:border-violet-800' },
 };
 
-const BATCH_SIZE = 50;
-
 export default function GitHubSync() {
     const [status, setStatus] = useState<SyncStatus | null>(null);
     const [loading, setLoading] = useState(true);
@@ -57,8 +55,8 @@ export default function GitHubSync() {
         }
     };
 
-    // Sync a single category until complete
-    const syncCategoryUntilComplete = async (category: SyncCategory): Promise<{ uploaded: number; error?: string }> => {
+    // Sync a single category until all images are synced
+    const syncCategoryFully = async (category: SyncCategory): Promise<number> => {
         let totalUploaded = 0;
         let hasMore = true;
 
@@ -67,30 +65,33 @@ export default function GitHubSync() {
                 const response = await fetch('/api/github-sync', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ category, limit: BATCH_SIZE }),
+                    body: JSON.stringify({ category, limit: 50 }),
                 });
 
                 const data = await response.json();
 
-                if (data.success) {
-                    if (data.uploaded > 0) {
-                        totalUploaded += data.uploaded;
-                        addActivityLog('success', `[GitHub同步] ${CATEGORY_CONFIG[category].label}: 上传 ${data.uploaded} 张 (共 ${totalUploaded} 张)`);
-                        setSyncProgress(`${CATEGORY_CONFIG[category].label}: 已上传 ${totalUploaded} 张...`);
-                    } else {
+                if (data.success && data.uploaded > 0) {
+                    totalUploaded += data.uploaded;
+                    addActivityLog('success', `[GitHub同步] ${CATEGORY_CONFIG[category].label}: 已上传 ${data.uploaded} 张 (共 ${totalUploaded} 张)`);
+                    setSyncProgress(`${CATEGORY_CONFIG[category].label}: 已上传 ${totalUploaded} 张...`);
+
+                    // Check if there are more images to sync
+                    if (data.uploaded < 50) {
                         hasMore = false;
                     }
                 } else {
-                    addActivityLog('error', `[GitHub同步] ${CATEGORY_CONFIG[category].label}: ${data.error}`);
-                    return { uploaded: totalUploaded, error: data.error };
+                    hasMore = false;
+                    if (!data.success && data.error) {
+                        addActivityLog('error', `[GitHub同步] ${CATEGORY_CONFIG[category].label}: ${data.error}`);
+                    }
                 }
-            } catch {
+            } catch (error) {
                 addActivityLog('error', `[GitHub同步] ${CATEGORY_CONFIG[category].label}: 网络错误`);
-                return { uploaded: totalUploaded, error: '网络错误' };
+                hasMore = false;
             }
         }
 
-        return { uploaded: totalUploaded };
+        return totalUploaded;
     };
 
     const handleSync = async (category: SyncCategory) => {
@@ -98,21 +99,19 @@ export default function GitHubSync() {
         setResult(null);
         addActivityLog('info', `[GitHub同步] 开始同步 ${CATEGORY_CONFIG[category].label}...`);
 
-        const { uploaded, error } = await syncCategoryUntilComplete(category);
+        const uploaded = await syncCategoryFully(category);
 
-        if (error) {
+        if (uploaded > 0) {
             setResult({
-                success: false,
-                message: `${CATEGORY_CONFIG[category].label}: ${error}`,
+                success: true,
+                message: `成功上传 ${uploaded} 张${CATEGORY_CONFIG[category].label}图片`,
             });
+            addActivityLog('success', `[GitHub同步] ${CATEGORY_CONFIG[category].label} 同步完成，共上传 ${uploaded} 张`);
         } else {
             setResult({
                 success: true,
-                message: uploaded > 0
-                    ? `${CATEGORY_CONFIG[category].label}: 成功上传 ${uploaded} 张图片`
-                    : `${CATEGORY_CONFIG[category].label}: 没有需要同步的图片`,
+                message: `${CATEGORY_CONFIG[category].label}没有需要同步的图片`,
             });
-            addActivityLog('success', `[GitHub同步] ${CATEGORY_CONFIG[category].label} 同步完成，共 ${uploaded} 张`);
         }
 
         fetchStatus();
@@ -124,42 +123,41 @@ export default function GitHubSync() {
         setSyncing('all');
         setResult(null);
         setSyncProgress('');
-        addActivityLog('info', '[GitHub同步] 开始一键同步全部分类...');
+        addActivityLog('info', '[GitHub同步] 开始一键同步所有分类...');
 
         let totalUploaded = 0;
-        const errors: string[] = [];
 
         for (const category of ALL_CATEGORIES) {
-            setSyncProgress(`正在同步 ${CATEGORY_CONFIG[category].label}...`);
-            addActivityLog('info', `[GitHub同步] 开始同步 ${CATEGORY_CONFIG[category].label}...`);
+            const catStatus = status?.categories[category];
+            const pending = (catStatus?.total || 0) - (catStatus?.synced || 0);
 
-            const { uploaded, error } = await syncCategoryUntilComplete(category);
+            if (pending <= 0) continue;
+
+            setSyncProgress(`正在同步 ${CATEGORY_CONFIG[category].label}...`);
+            addActivityLog('info', `[GitHub同步] 开始同步 ${CATEGORY_CONFIG[category].label} (${pending} 张待传)...`);
+
+            const uploaded = await syncCategoryFully(category);
+            totalUploaded += uploaded;
 
             if (uploaded > 0) {
-                totalUploaded += uploaded;
-            }
-
-            if (error) {
-                errors.push(`${CATEGORY_CONFIG[category].label}: ${error}`);
+                addActivityLog('success', `[GitHub同步] ${CATEGORY_CONFIG[category].label} 完成，上传 ${uploaded} 张`);
             }
         }
 
         setSyncProgress('');
 
-        if (errors.length === 0) {
+        if (totalUploaded > 0) {
             setResult({
                 success: true,
-                message: totalUploaded > 0
-                    ? `全部同步完成！共上传 ${totalUploaded} 张图片`
-                    : '全部分类已同步完成，没有待上传的图片',
+                message: `全部同步完成！共上传 ${totalUploaded} 张图片`,
             });
-            addActivityLog('success', `[GitHub同步] 全部同步完成，共上传 ${totalUploaded} 张图片`);
+            addActivityLog('success', `[GitHub同步] 全部同步完成！共上传 ${totalUploaded} 张图片`);
         } else {
             setResult({
-                success: false,
-                message: `同步完成，上传 ${totalUploaded} 张，但有错误: ${errors.join('; ')}`,
+                success: true,
+                message: '所有分类都已同步完成',
             });
-            addActivityLog('warning', `[GitHub同步] 同步完成但有错误: ${errors.join('; ')}`);
+            addActivityLog('info', '[GitHub同步] 所有分类都已同步完成');
         }
 
         fetchStatus();

@@ -28,6 +28,10 @@ export async function GET() {
             cron_expression: '0 0 * * *',
             tags: ['イラスト', '二次元', '風景'],
             r18_enabled: false,
+            crawl_limit: 10,
+            r18_crawl_limit: 10,
+            tag_search_enabled: false,
+            tag_search_limit: 10,
         };
 
         return NextResponse.json(settings);
@@ -43,7 +47,15 @@ export async function GET() {
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { cron_expression, tags, r18_enabled } = body;
+        const {
+            cron_expression,
+            tags,
+            r18_enabled,
+            crawl_limit,
+            r18_crawl_limit,
+            tag_search_enabled,
+            tag_search_limit,
+        } = body;
 
         const supabase = createServerClient();
 
@@ -54,16 +66,22 @@ export async function POST(request: NextRequest) {
             .limit(1)
             .single();
 
+        const settingsData = {
+            cron_expression: cron_expression || '0 0 * * *',
+            tags: tags || ['イラスト'],
+            r18_enabled: r18_enabled ?? false,
+            crawl_limit: crawl_limit ?? 10,
+            r18_crawl_limit: r18_crawl_limit ?? 10,
+            tag_search_enabled: tag_search_enabled ?? false,
+            tag_search_limit: tag_search_limit ?? 10,
+            updated_at: new Date().toISOString(),
+        };
+
         if (existing) {
             // Update existing
             const { error } = await supabase
                 .from('crawler_settings')
-                .update({
-                    cron_expression: cron_expression || '0 0 * * *',
-                    tags: tags || ['イラスト'],
-                    r18_enabled: r18_enabled ?? false,
-                    updated_at: new Date().toISOString(),
-                })
+                .update(settingsData)
                 .eq('id', existing.id);
 
             if (error) {
@@ -73,14 +91,11 @@ export async function POST(request: NextRequest) {
                 );
             }
         } else {
-            // Insert new
+            // Insert new (remove updated_at for insert)
+            const { updated_at, ...insertData } = settingsData;
             const { error } = await supabase
                 .from('crawler_settings')
-                .insert({
-                    cron_expression: cron_expression || '0 0 * * *',
-                    tags: tags || ['イラスト'],
-                    r18_enabled: r18_enabled ?? false,
-                });
+                .insert(insertData);
 
             if (error) {
                 return NextResponse.json(

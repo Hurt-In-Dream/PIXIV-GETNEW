@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     ScrollText,
     RefreshCw,
@@ -12,11 +12,12 @@ import {
     Clock
 } from 'lucide-react';
 
-interface ActivityLog {
+interface LogEntry {
     id: string;
-    type: 'info' | 'success' | 'warning' | 'error';
+    level: 'info' | 'success' | 'warning' | 'error';
     message: string;
-    time: Date;
+    details: string | null;
+    created_at: string;
 }
 
 const typeConfig = {
@@ -26,51 +27,62 @@ const typeConfig = {
     error: { icon: XCircle, color: 'text-red-400', bg: 'bg-red-500/10' },
 };
 
-// Global activity log store
-let activityLogs: ActivityLog[] = [];
-let listeners: Set<() => void> = new Set();
-
-export function addActivityLog(type: ActivityLog['type'], message: string) {
-    const log: ActivityLog = {
-        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-        type,
-        message,
-        time: new Date(),
-    };
-    activityLogs = [log, ...activityLogs].slice(0, 100); // Keep last 100
-    listeners.forEach(fn => fn());
-}
-
-export function clearActivityLogs() {
-    activityLogs = [];
-    listeners.forEach(fn => fn());
-}
-
 export default function LogViewer() {
-    const [logs, setLogs] = useState<ActivityLog[]>([]);
+    const [logs, setLogs] = useState<LogEntry[]>([]);
+    const [loading, setLoading] = useState(false);
     const [filter, setFilter] = useState<string>('all');
 
+    const fetchLogs = useCallback(async () => {
+        setLoading(true);
+        try {
+            const params = new URLSearchParams({ limit: '50' });
+            if (filter !== 'all') {
+                params.set('level', filter);
+            }
+            const response = await fetch(`/api/logs?${params}`);
+            const data = await response.json();
+            setLogs(data.logs || []);
+        } catch (error) {
+            console.error('Failed to fetch logs:', error);
+        } finally {
+            setLoading(false);
+        }
+    }, [filter]);
+
     useEffect(() => {
-        // Subscribe to log updates
-        const update = () => setLogs([...activityLogs]);
-        listeners.add(update);
-        update(); // Initial load
+        fetchLogs();
+        // Auto refresh every 5 seconds
+        const interval = setInterval(fetchLogs, 5000);
+        return () => clearInterval(interval);
+    }, [fetchLogs]);
 
-        return () => {
-            listeners.delete(update);
-        };
-    }, []);
+    const clearLogs = async () => {
+        if (!confirm('确定要清空所有日志吗？')) return;
 
-    const filteredLogs = filter === 'all'
-        ? logs
-        : logs.filter(log => log.type === filter);
+        try {
+            await fetch('/api/logs', { method: 'DELETE' });
+            setLogs([]);
+        } catch (error) {
+            console.error('Failed to clear logs:', error);
+        }
+    };
 
-    const formatTime = (date: Date) => {
+    const formatTime = (dateStr: string) => {
+        const date = new Date(dateStr);
         return date.toLocaleTimeString('zh-CN', {
             hour: '2-digit',
             minute: '2-digit',
             second: '2-digit',
         });
+    };
+
+    const formatDate = (dateStr: string) => {
+        const date = new Date(dateStr);
+        const today = new Date();
+        if (date.toDateString() === today.toDateString()) {
+            return '今天';
+        }
+        return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
     };
 
     return (
@@ -84,7 +96,7 @@ export default function LogViewer() {
                         <h2 className="text-xl font-bold bg-gradient-to-r from-violet-600 to-purple-600 bg-clip-text text-transparent">
                             活动日志
                         </h2>
-                        <p className="text-xs text-gray-500">实时操作记录</p>
+                        <p className="text-xs text-gray-500">自动刷新中</p>
                     </div>
                 </div>
 
@@ -102,9 +114,19 @@ export default function LogViewer() {
                         <option value="error">错误</option>
                     </select>
 
+                    {/* Refresh */}
+                    <button
+                        onClick={fetchLogs}
+                        disabled={loading}
+                        className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                        title="刷新"
+                    >
+                        <RefreshCw className={`w-4 h-4 text-gray-500 ${loading ? 'animate-spin' : ''}`} />
+                    </button>
+
                     {/* Clear */}
                     <button
-                        onClick={clearActivityLogs}
+                        onClick={clearLogs}
                         className="p-2 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/20 transition-colors"
                         title="清空日志"
                     >
@@ -115,15 +137,15 @@ export default function LogViewer() {
 
             {/* Log List */}
             <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                {filteredLogs.length === 0 ? (
+                {logs.length === 0 ? (
                     <div className="text-center py-8 text-gray-500">
                         <Clock className="w-10 h-10 mx-auto mb-3 opacity-50" />
                         <p>暂无活动记录</p>
                         <p className="text-xs mt-1">执行操作后会在这里显示日志</p>
                     </div>
                 ) : (
-                    filteredLogs.map((log) => {
-                        const config = typeConfig[log.type];
+                    logs.map((log) => {
+                        const config = typeConfig[log.level] || typeConfig.info;
                         const Icon = config.icon;
 
                         return (
@@ -132,12 +154,24 @@ export default function LogViewer() {
                                 className={`flex items-start gap-3 p-3 rounded-xl ${config.bg} transition-all`}
                             >
                                 <Icon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${config.color}`} />
-                                <p className="flex-1 text-sm text-gray-700 dark:text-gray-300">
-                                    {log.message}
-                                </p>
-                                <span className="text-xs text-gray-400 flex-shrink-0">
-                                    {formatTime(log.time)}
-                                </span>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm text-gray-700 dark:text-gray-300">
+                                        {log.message}
+                                    </p>
+                                    {log.details && (
+                                        <p className="text-xs text-gray-500 mt-0.5 truncate">
+                                            {log.details}
+                                        </p>
+                                    )}
+                                </div>
+                                <div className="text-right flex-shrink-0">
+                                    <span className="text-xs text-gray-400 block">
+                                        {formatTime(log.created_at)}
+                                    </span>
+                                    <span className="text-xs text-gray-500">
+                                        {formatDate(log.created_at)}
+                                    </span>
+                                </div>
                             </div>
                         );
                     })
@@ -145,4 +179,16 @@ export default function LogViewer() {
             </div>
         </div>
     );
+}
+
+// Export helper function for adding logs (kept for backwards compatibility)
+export function addActivityLog(type: 'info' | 'success' | 'warning' | 'error', message: string) {
+    // This function is now a no-op since logs are stored server-side
+    // The actual logging happens in the API routes via the logger module
+    console.log(`[${type.toUpperCase()}] ${message}`);
+}
+
+export function clearActivityLogs() {
+    // This function is now a no-op
+    console.log('Logs are now stored in database, use the clear button in UI');
 }

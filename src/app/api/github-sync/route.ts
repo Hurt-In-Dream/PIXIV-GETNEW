@@ -1,7 +1,7 @@
 /**
  * GitHub Sync API Route
  * Converts R2 images to WebP and uploads to GitHub repository
- * Also updates pic.js max values automatically
+ * Supports all folders: h, v, r18/h, r18/v, pid/h, pid/v, tag/h, tag/v
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -13,37 +13,69 @@ const GITHUB_OWNER = 'Hurt-In-Dream';
 const GITHUB_REPO = 'EdgeOne_Function_PicAPI';
 const GITHUB_BRANCH = 'main';
 
+// Define sync categories
+type SyncCategory = 'h' | 'v' | 'r18h' | 'r18v' | 'pidh' | 'pidv' | 'tagh' | 'tagv';
+
+const SYNC_CONFIG: Record<SyncCategory, {
+    githubDir: string;
+    r2Pattern: string;
+    r2Exclude?: string[];
+    label: string;
+}> = {
+    h: {
+        githubDir: 'ri/h',
+        r2Pattern: '%/h/%',
+        r2Exclude: ['%R18/%', '%tag/%', '%pid/%'],
+        label: '排行榜横屏',
+    },
+    v: {
+        githubDir: 'ri/v',
+        r2Pattern: '%/v/%',
+        r2Exclude: ['%R18/%', '%tag/%', '%pid/%'],
+        label: '排行榜竖屏',
+    },
+    r18h: {
+        githubDir: 'ri/r18/h',
+        r2Pattern: '%R18/%/h/%',
+        r2Exclude: [],
+        label: 'R18横屏',
+    },
+    r18v: {
+        githubDir: 'ri/r18/v',
+        r2Pattern: '%R18/%/v/%',
+        r2Exclude: [],
+        label: 'R18竖屏',
+    },
+    pidh: {
+        githubDir: 'ri/pid/h',
+        r2Pattern: '%pid/h/%',
+        r2Exclude: ['%R18/%'],
+        label: 'PID横屏',
+    },
+    pidv: {
+        githubDir: 'ri/pid/v',
+        r2Pattern: '%pid/v/%',
+        r2Exclude: ['%R18/%'],
+        label: 'PID竖屏',
+    },
+    tagh: {
+        githubDir: 'ri/tag/h',
+        r2Pattern: '%tag/h/%',
+        r2Exclude: ['%R18/%'],
+        label: '标签横屏',
+    },
+    tagv: {
+        githubDir: 'ri/tag/v',
+        r2Pattern: '%tag/v/%',
+        r2Exclude: ['%R18/%'],
+        label: '标签竖屏',
+    },
+};
+
 interface SyncResult {
     success: boolean;
     uploaded: number;
     errors: string[];
-}
-
-/**
- * Get file content from GitHub
- */
-async function getFileContent(path: string): Promise<{ content: string; sha: string } | null> {
-    try {
-        const response = await fetch(
-            `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}?ref=${GITHUB_BRANCH}`,
-            {
-                headers: {
-                    'Authorization': `Bearer ${GITHUB_TOKEN}`,
-                    'Accept': 'application/vnd.github.v3+json',
-                },
-            }
-        );
-
-        if (response.ok) {
-            const data = await response.json();
-            // GitHub returns base64 encoded content
-            const content = Buffer.from(data.content, 'base64').toString('utf-8');
-            return { content, sha: data.sha };
-        }
-        return null;
-    } catch {
-        return null;
-    }
 }
 
 /**
@@ -75,12 +107,11 @@ async function getFileSha(path: string): Promise<string | null> {
  * Upload a file to GitHub
  */
 async function uploadToGitHub(
-    content: string, // base64 encoded
+    content: string,
     path: string,
     message: string
 ): Promise<boolean> {
     try {
-        // Check if file exists to get SHA
         const sha = await getFileSha(path);
 
         const body: Record<string, string> = {
@@ -131,7 +162,6 @@ async function getExistingFileCount(dir: string): Promise<number> {
         if (response.ok) {
             const files = await response.json();
             if (Array.isArray(files)) {
-                // Get highest number from existing files
                 let maxNum = 0;
                 for (const file of files) {
                     const match = file.name.match(/^(\d+)\.webp$/);
@@ -154,95 +184,45 @@ async function getExistingFileCount(dir: string): Promise<number> {
  */
 async function convertToWebP(imageBuffer: ArrayBuffer): Promise<Buffer> {
     const buffer = Buffer.from(imageBuffer);
-
-    // Convert to WebP with good quality
     const webpBuffer = await sharp(buffer)
         .webp({ quality: 85 })
         .toBuffer();
-
     return webpBuffer;
 }
 
 /**
- * Update pic.js with new max values
+ * Get images count for a category
  */
-async function updatePicJsConfig(): Promise<{ success: boolean; message: string }> {
-    try {
-        // Get current file counts from GitHub
-        const hCount = await getExistingFileCount('ri/h');
-        const vCount = await getExistingFileCount('ri/v');
-        const r18hCount = await getExistingFileCount('ri/r18/h');
-        const r18vCount = await getExistingFileCount('ri/r18/v');
-        const pidhCount = await getExistingFileCount('ri/pid/h');
-        const pidvCount = await getExistingFileCount('ri/pid/v');
+async function getCategoryCount(supabase: ReturnType<typeof createServerClient>, category: SyncCategory) {
+    const config = SYNC_CONFIG[category];
 
-        // Get current pic.js content
-        const fileData = await getFileContent('functions/pic.js');
-        if (!fileData) {
-            return { success: false, message: 'Failed to get pic.js content' };
-        }
+    let query = supabase
+        .from('pixiv_images')
+        .select('*', { count: 'exact', head: true })
+        .not('r2_url', 'is', null)
+        .ilike('r2_url', config.r2Pattern);
 
-        let { content, sha } = fileData;
-
-        // Update max values using regex
-        content = content.replace(
-            /h:\s*{\s*path:\s*'\/ri\/h\/'\s*,\s*max:\s*\d+\s*}/,
-            `h: { path: '/ri/h/', max: ${hCount} }`
-        );
-        content = content.replace(
-            /v:\s*{\s*path:\s*'\/ri\/v\/'\s*,\s*max:\s*\d+\s*}/,
-            `v: { path: '/ri/v/', max: ${vCount} }`
-        );
-        content = content.replace(
-            /r18h:\s*{\s*path:\s*'\/ri\/r18\/h\/'\s*,\s*max:\s*\d+\s*}/,
-            `r18h: { path: '/ri/r18/h/', max: ${r18hCount || 1} }`
-        );
-        content = content.replace(
-            /r18v:\s*{\s*path:\s*'\/ri\/r18\/v\/'\s*,\s*max:\s*\d+\s*}/,
-            `r18v: { path: '/ri/r18/v/', max: ${r18vCount || 1} }`
-        );
-        content = content.replace(
-            /pidh:\s*{\s*path:\s*'\/ri\/pid\/h\/'\s*,\s*max:\s*\d+\s*}/,
-            `pidh: { path: '/ri/pid/h/', max: ${pidhCount || 1} }`
-        );
-        content = content.replace(
-            /pidv:\s*{\s*path:\s*'\/ri\/pid\/v\/'\s*,\s*max:\s*\d+\s*}/,
-            `pidv: { path: '/ri/pid/v/', max: ${pidvCount || 1} }`
-        );
-
-        // Upload updated file
-        const base64Content = Buffer.from(content).toString('base64');
-
-        const response = await fetch(
-            `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/functions/pic.js`,
-            {
-                method: 'PUT',
-                headers: {
-                    'Authorization': `Bearer ${GITHUB_TOKEN}`,
-                    'Accept': 'application/vnd.github.v3+json',
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    message: `Update image counts: h=${hCount}, v=${vCount}`,
-                    content: base64Content,
-                    sha: sha,
-                    branch: GITHUB_BRANCH,
-                }),
-            }
-        );
-
-        if (response.ok) {
-            return {
-                success: true,
-                message: `已更新 pic.js: h=${hCount}, v=${vCount}, r18h=${r18hCount}, r18v=${r18vCount}, pidh=${pidhCount}, pidv=${pidvCount}`
-            };
-        } else {
-            const errorData = await response.json();
-            return { success: false, message: `Failed to update pic.js: ${errorData.message}` };
-        }
-    } catch (error) {
-        return { success: false, message: `Error updating pic.js: ${error}` };
+    for (const exclude of config.r2Exclude || []) {
+        query = query.not('r2_url', 'ilike', exclude);
     }
+
+    const { count: total } = await query;
+
+    // Get synced count
+    let syncedQuery = supabase
+        .from('pixiv_images')
+        .select('*', { count: 'exact', head: true })
+        .not('r2_url', 'is', null)
+        .ilike('r2_url', config.r2Pattern)
+        .not('github_synced', 'is', null);
+
+    for (const exclude of config.r2Exclude || []) {
+        syncedQuery = syncedQuery.not('r2_url', 'ilike', exclude);
+    }
+
+    const { count: synced } = await syncedQuery;
+
+    return { total: total || 0, synced: synced || 0 };
 }
 
 /**
@@ -258,29 +238,33 @@ export async function POST(request: NextRequest) {
 
     try {
         const body = await request.json();
-        const { orientation = 'h', limit = 10, updateConfig = false } = body;
+        const { category = 'h', limit = 10 } = body as { category: SyncCategory; limit: number };
 
-        // If only updating config
-        if (updateConfig) {
-            const configResult = await updatePicJsConfig();
-            return NextResponse.json(configResult);
+        const config = SYNC_CONFIG[category];
+        if (!config) {
+            return NextResponse.json(
+                { error: 'Invalid category' },
+                { status: 400 }
+            );
         }
 
         const supabase = createServerClient();
 
-        // Get images from database that haven't been synced to GitHub
-        // Only get ranking images (no R18, tag, pid prefix)
-        const { data: images, error } = await supabase
+        // Build query
+        let query = supabase
             .from('pixiv_images')
             .select('*')
             .not('r2_url', 'is', null)
-            .not('r2_url', 'ilike', '%R18/%')
-            .not('r2_url', 'ilike', '%tag/%')
-            .not('r2_url', 'ilike', '%pid/%')
-            .ilike('r2_url', `%/${orientation}/%`)
-            .is('github_synced', null) // Not yet synced
+            .ilike('r2_url', config.r2Pattern)
+            .is('github_synced', null)
             .order('created_at', { ascending: true })
             .limit(Math.min(limit, 20));
+
+        for (const exclude of config.r2Exclude || []) {
+            query = query.not('r2_url', 'ilike', exclude);
+        }
+
+        const { data: images, error } = await query;
 
         if (error) {
             return NextResponse.json({ error: error.message }, { status: 500 });
@@ -289,7 +273,7 @@ export async function POST(request: NextRequest) {
         if (!images || images.length === 0) {
             return NextResponse.json({
                 success: true,
-                message: '没有需要同步的图片',
+                message: `没有需要同步的${config.label}图片`,
                 uploaded: 0,
             });
         }
@@ -300,44 +284,34 @@ export async function POST(request: NextRequest) {
             errors: [],
         };
 
-        // Get starting number for new files
-        const dir = `ri/${orientation}`;
-        let currentNum = await getExistingFileCount(dir);
+        // Get starting number
+        let currentNum = await getExistingFileCount(config.githubDir);
 
         for (const image of images) {
             try {
                 if (!image.r2_url) continue;
 
-                // Fetch image from R2
                 const imageResponse = await fetch(image.r2_url);
                 if (!imageResponse.ok) {
                     result.errors.push(`Failed to fetch: ${image.pid}`);
                     continue;
                 }
 
-                // Get image as buffer
                 const imageBuffer = await imageResponse.arrayBuffer();
-
-                // Convert to WebP using sharp
                 const webpBuffer = await convertToWebP(imageBuffer);
-
-                // Convert to base64
                 const base64Content = webpBuffer.toString('base64');
 
-                // Increment number and create filename
                 currentNum++;
                 const filename = `${currentNum}.webp`;
-                const path = `${dir}/${filename}`;
+                const path = `${config.githubDir}/${filename}`;
 
-                // Upload to GitHub
                 const uploaded = await uploadToGitHub(
                     base64Content,
                     path,
-                    `Add ${filename} from PID ${image.pid}`
+                    `Add ${config.label} ${filename} from PID ${image.pid}`
                 );
 
                 if (uploaded) {
-                    // Mark as synced in database
                     await supabase
                         .from('pixiv_images')
                         .update({ github_synced: new Date().toISOString() })
@@ -348,18 +322,11 @@ export async function POST(request: NextRequest) {
                     result.errors.push(`Failed to upload: ${image.pid}`);
                 }
 
-                // Rate limiting - GitHub API has limits
+                // Rate limiting
                 await new Promise(resolve => setTimeout(resolve, 1000));
             } catch (err) {
                 result.errors.push(`Error processing ${image.pid}: ${err}`);
             }
-        }
-
-        // After uploading, update pic.js config
-        let configUpdateMessage = '';
-        if (result.uploaded > 0) {
-            const configResult = await updatePicJsConfig();
-            configUpdateMessage = configResult.message;
         }
 
         return NextResponse.json({
@@ -367,7 +334,7 @@ export async function POST(request: NextRequest) {
             uploaded: result.uploaded,
             total: images.length,
             errors: result.errors,
-            configUpdate: configUpdateMessage,
+            category: config.label,
         });
     } catch (error) {
         console.error('GitHub sync error:', error);
@@ -379,7 +346,7 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * GET /api/github-sync - Get sync status
+ * GET /api/github-sync - Get sync status for all categories
  */
 export async function GET() {
     if (!GITHUB_TOKEN) {
@@ -389,53 +356,18 @@ export async function GET() {
     try {
         const supabase = createServerClient();
 
-        // Count synced vs unsynced images
-        const { count: totalH } = await supabase
-            .from('pixiv_images')
-            .select('*', { count: 'exact', head: true })
-            .not('r2_url', 'is', null)
-            .not('r2_url', 'ilike', '%R18/%')
-            .not('r2_url', 'ilike', '%tag/%')
-            .not('r2_url', 'ilike', '%pid/%')
-            .ilike('r2_url', '%/h/%');
+        // Get counts for all categories
+        const categories: Record<string, { total: number; synced: number; github: number }> = {};
 
-        const { count: syncedH } = await supabase
-            .from('pixiv_images')
-            .select('*', { count: 'exact', head: true })
-            .not('r2_url', 'is', null)
-            .not('r2_url', 'ilike', '%R18/%')
-            .not('r2_url', 'ilike', '%tag/%')
-            .not('r2_url', 'ilike', '%pid/%')
-            .ilike('r2_url', '%/h/%')
-            .not('github_synced', 'is', null);
-
-        const { count: totalV } = await supabase
-            .from('pixiv_images')
-            .select('*', { count: 'exact', head: true })
-            .not('r2_url', 'is', null)
-            .not('r2_url', 'ilike', '%R18/%')
-            .not('r2_url', 'ilike', '%tag/%')
-            .not('r2_url', 'ilike', '%pid/%')
-            .ilike('r2_url', '%/v/%');
-
-        const { count: syncedV } = await supabase
-            .from('pixiv_images')
-            .select('*', { count: 'exact', head: true })
-            .not('r2_url', 'is', null)
-            .not('r2_url', 'ilike', '%R18/%')
-            .not('r2_url', 'ilike', '%tag/%')
-            .not('r2_url', 'ilike', '%pid/%')
-            .ilike('r2_url', '%/v/%')
-            .not('github_synced', 'is', null);
-
-        // Get current GitHub counts
-        const githubH = await getExistingFileCount('ri/h');
-        const githubV = await getExistingFileCount('ri/v');
+        for (const [key, config] of Object.entries(SYNC_CONFIG)) {
+            const counts = await getCategoryCount(supabase, key as SyncCategory);
+            const github = await getExistingFileCount(config.githubDir);
+            categories[key] = { ...counts, github };
+        }
 
         return NextResponse.json({
             configured: true,
-            horizontal: { total: totalH || 0, synced: syncedH || 0, github: githubH },
-            vertical: { total: totalV || 0, synced: syncedV || 0, github: githubV },
+            categories,
         });
     } catch (error) {
         return NextResponse.json(

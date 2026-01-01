@@ -1,19 +1,38 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Github, Upload, Loader2, Check, AlertCircle, Monitor, Smartphone, RefreshCw, Settings } from 'lucide-react';
+import { Github, Upload, Loader2, Check, AlertCircle, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+
+interface CategoryStatus {
+    total: number;
+    synced: number;
+    github: number;
+}
 
 interface SyncStatus {
     configured: boolean;
-    horizontal: { total: number; synced: number; github?: number };
-    vertical: { total: number; synced: number; github?: number };
+    categories: Record<string, CategoryStatus>;
 }
+
+type SyncCategory = 'h' | 'v' | 'r18h' | 'r18v' | 'pidh' | 'pidv' | 'tagh' | 'tagv';
+
+const CATEGORY_CONFIG: Record<SyncCategory, { label: string; color: string; bgColor: string }> = {
+    h: { label: '排行榜横屏', color: 'text-blue-600', bgColor: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800' },
+    v: { label: '排行榜竖屏', color: 'text-green-600', bgColor: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' },
+    r18h: { label: 'R18横屏', color: 'text-rose-600', bgColor: 'bg-rose-50 dark:bg-rose-900/20 border-rose-200 dark:border-rose-800' },
+    r18v: { label: 'R18竖屏', color: 'text-pink-600', bgColor: 'bg-pink-50 dark:bg-pink-900/20 border-pink-200 dark:border-pink-800' },
+    pidh: { label: 'PID横屏', color: 'text-orange-600', bgColor: 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800' },
+    pidv: { label: 'PID竖屏', color: 'text-amber-600', bgColor: 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800' },
+    tagh: { label: '标签横屏', color: 'text-purple-600', bgColor: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800' },
+    tagv: { label: '标签竖屏', color: 'text-violet-600', bgColor: 'bg-violet-50 dark:bg-violet-900/20 border-violet-200 dark:border-violet-800' },
+};
 
 export default function GitHubSync() {
     const [status, setStatus] = useState<SyncStatus | null>(null);
     const [loading, setLoading] = useState(true);
-    const [syncing, setSyncing] = useState<'h' | 'v' | 'config' | null>(null);
+    const [syncing, setSyncing] = useState<SyncCategory | null>(null);
     const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
+    const [expanded, setExpanded] = useState(false);
 
     useEffect(() => {
         fetchStatus();
@@ -32,60 +51,30 @@ export default function GitHubSync() {
         }
     };
 
-    const handleSync = async (orientation: 'h' | 'v') => {
-        setSyncing(orientation);
+    const handleSync = async (category: SyncCategory) => {
+        setSyncing(category);
         setResult(null);
 
         try {
             const response = await fetch('/api/github-sync', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ orientation, limit: 10 }),
+                body: JSON.stringify({ category, limit: 10 }),
             });
 
             const data = await response.json();
 
             if (data.success) {
-                let message = `成功上传 ${data.uploaded} 张${orientation === 'h' ? '横屏' : '竖屏'}图片`;
-                if (data.configUpdate) {
-                    message += `\n${data.configUpdate}`;
-                }
-                setResult({ success: true, message });
+                setResult({
+                    success: true,
+                    message: `成功上传 ${data.uploaded} 张${data.category}图片`,
+                });
                 fetchStatus();
             } else {
                 setResult({
                     success: false,
                     message: data.error || '上传失败',
                 });
-            }
-        } catch {
-            setResult({
-                success: false,
-                message: '网络错误',
-            });
-        } finally {
-            setSyncing(null);
-        }
-    };
-
-    const handleUpdateConfig = async () => {
-        setSyncing('config');
-        setResult(null);
-
-        try {
-            const response = await fetch('/api/github-sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ updateConfig: true }),
-            });
-
-            const data = await response.json();
-            setResult({
-                success: data.success,
-                message: data.message,
-            });
-            if (data.success) {
-                fetchStatus();
             }
         } catch {
             setResult({
@@ -114,22 +103,66 @@ export default function GitHubSync() {
                     <div className="p-2 rounded-xl bg-gradient-to-br from-gray-500 to-gray-600">
                         <Github className="w-5 h-5 text-white" />
                     </div>
-                    <h2 className="text-xl font-bold text-gray-400">
-                        GitHub 同步
-                    </h2>
+                    <h2 className="text-xl font-bold text-gray-400">GitHub 同步</h2>
                 </div>
                 <div className="p-4 rounded-xl bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
                     <div className="flex items-center gap-2 text-yellow-600 dark:text-yellow-400">
                         <AlertCircle className="w-5 h-5" />
                         <span className="text-sm font-medium">未配置 GITHUB_TOKEN 环境变量</span>
                     </div>
-                    <p className="text-xs text-yellow-500 mt-1">
-                        请在 Vercel 环境变量中添加 GITHUB_TOKEN 以启用此功能
-                    </p>
                 </div>
             </div>
         );
     }
+
+    // Main categories (ranking)
+    const mainCategories: SyncCategory[] = ['h', 'v'];
+    // Extra categories
+    const extraCategories: SyncCategory[] = ['r18h', 'r18v', 'pidh', 'pidv', 'tagh', 'tagv'];
+
+    const renderCategoryCard = (category: SyncCategory) => {
+        const config = CATEGORY_CONFIG[category];
+        const catStatus = status.categories[category] || { total: 0, synced: 0, github: 0 };
+        const pending = catStatus.total - catStatus.synced;
+
+        return (
+            <div key={category} className={`p-3 rounded-xl border ${config.bgColor}`}>
+                <div className="flex items-center justify-between mb-2">
+                    <span className={`text-sm font-medium ${config.color}`}>
+                        {config.label}
+                    </span>
+                    <span className={`text-xs ${config.color}`}>
+                        GitHub: {catStatus.github}
+                    </span>
+                </div>
+                <div className="text-lg font-bold text-gray-800 dark:text-gray-200">
+                    {catStatus.synced} / {catStatus.total}
+                </div>
+                <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mt-2 overflow-hidden">
+                    <div
+                        className="h-full bg-current rounded-full transition-all"
+                        style={{
+                            width: catStatus.total > 0
+                                ? `${(catStatus.synced / catStatus.total) * 100}%`
+                                : '0%'
+                        }}
+                    />
+                </div>
+                <button
+                    onClick={() => handleSync(category)}
+                    disabled={syncing !== null || pending === 0}
+                    className={`w-full mt-2 px-2 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:bg-gray-400 text-white text-xs font-medium transition-colors flex items-center justify-center gap-1`}
+                >
+                    {syncing === category ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                        <Upload className="w-3 h-3" />
+                    )}
+                    {pending > 0 ? `同步 (${pending}待传)` : '已同步'}
+                </button>
+            </div>
+        );
+    };
 
     return (
         <div className="card-anime p-6">
@@ -156,135 +189,49 @@ export default function GitHubSync() {
                 </button>
             </div>
 
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                将排行榜图片同步到 GitHub 仓库，自动编号并更新 pic.js 配置
-            </p>
-
-            {/* Status Cards */}
-            <div className="grid grid-cols-2 gap-4 mb-4">
-                {/* Horizontal */}
-                <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
-                    <div className="flex items-center gap-2 mb-2">
-                        <Monitor className="w-4 h-4 text-blue-500" />
-                        <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
-                            横屏 (ri/h)
-                        </span>
-                    </div>
-                    <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                        {status.horizontal.synced} / {status.horizontal.total}
-                    </div>
-                    {status.horizontal.github !== undefined && (
-                        <p className="text-xs text-blue-500 mt-1">
-                            GitHub: {status.horizontal.github} 张
-                        </p>
-                    )}
-                    <div className="h-2 bg-blue-200 dark:bg-blue-800 rounded-full mt-2 overflow-hidden">
-                        <div
-                            className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full transition-all"
-                            style={{
-                                width: status.horizontal.total > 0
-                                    ? `${(status.horizontal.synced / status.horizontal.total) * 100}%`
-                                    : '0%'
-                            }}
-                        />
-                    </div>
-                    <button
-                        onClick={() => handleSync('h')}
-                        disabled={syncing !== null || status.horizontal.synced >= status.horizontal.total}
-                        className="w-full mt-3 px-3 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 text-white text-sm font-medium transition-colors flex items-center justify-center gap-2"
-                    >
-                        {syncing === 'h' ? (
-                            <>
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                                同步中...
-                            </>
-                        ) : (
-                            <>
-                                <Upload className="w-4 h-4" />
-                                同步横屏
-                            </>
-                        )}
-                    </button>
-                </div>
-
-                {/* Vertical */}
-                <div className="p-4 rounded-xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
-                    <div className="flex items-center gap-2 mb-2">
-                        <Smartphone className="w-4 h-4 text-green-500" />
-                        <span className="text-sm font-medium text-green-700 dark:text-green-300">
-                            竖屏 (ri/v)
-                        </span>
-                    </div>
-                    <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-                        {status.vertical.synced} / {status.vertical.total}
-                    </div>
-                    {status.vertical.github !== undefined && (
-                        <p className="text-xs text-green-500 mt-1">
-                            GitHub: {status.vertical.github} 张
-                        </p>
-                    )}
-                    <div className="h-2 bg-green-200 dark:bg-green-800 rounded-full mt-2 overflow-hidden">
-                        <div
-                            className="h-full bg-gradient-to-r from-green-500 to-emerald-500 rounded-full transition-all"
-                            style={{
-                                width: status.vertical.total > 0
-                                    ? `${(status.vertical.synced / status.vertical.total) * 100}%`
-                                    : '0%'
-                            }}
-                        />
-                    </div>
-                    <button
-                        onClick={() => handleSync('v')}
-                        disabled={syncing !== null || status.vertical.synced >= status.vertical.total}
-                        className="w-full mt-3 px-3 py-2 rounded-lg bg-green-500 hover:bg-green-600 disabled:bg-gray-400 text-white text-sm font-medium transition-colors flex items-center justify-center gap-2"
-                    >
-                        {syncing === 'v' ? (
-                            <>
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                                同步中...
-                            </>
-                        ) : (
-                            <>
-                                <Upload className="w-4 h-4" />
-                                同步竖屏
-                            </>
-                        )}
-                    </button>
-                </div>
+            {/* Main Categories (Ranking) */}
+            <div className="grid grid-cols-2 gap-3 mb-3">
+                {mainCategories.map(renderCategoryCard)}
             </div>
 
-            {/* Update Config Button */}
+            {/* Expand Button */}
             <button
-                onClick={handleUpdateConfig}
-                disabled={syncing !== null}
-                className="w-full mb-4 px-4 py-2 rounded-lg bg-purple-500 hover:bg-purple-600 disabled:bg-gray-400 text-white text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                onClick={() => setExpanded(!expanded)}
+                className="w-full py-2 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 flex items-center justify-center gap-1 transition-colors"
             >
-                {syncing === 'config' ? (
+                {expanded ? (
                     <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        更新中...
+                        <ChevronUp className="w-4 h-4" />
+                        收起其他分类
                     </>
                 ) : (
                     <>
-                        <Settings className="w-4 h-4" />
-                        仅更新 pic.js 配置 (同步max数值)
+                        <ChevronDown className="w-4 h-4" />
+                        展开其他分类 (R18/PID/标签)
                     </>
                 )}
             </button>
 
+            {/* Extra Categories */}
+            {expanded && (
+                <div className="grid grid-cols-2 gap-3 mt-3">
+                    {extraCategories.map(renderCategoryCard)}
+                </div>
+            )}
+
             {/* Result Message */}
             {result && (
-                <div className={`p-3 rounded-lg ${result.success
+                <div className={`mt-4 p-3 rounded-lg ${result.success
                         ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
                         : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'
                     }`}>
-                    <div className="flex items-start gap-2">
+                    <div className="flex items-center gap-2">
                         {result.success ? (
-                            <Check className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                            <Check className="w-5 h-5" />
                         ) : (
-                            <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                            <AlertCircle className="w-5 h-5" />
                         )}
-                        <span className="text-sm whitespace-pre-wrap">{result.message}</span>
+                        <span className="text-sm">{result.message}</span>
                     </div>
                 </div>
             )}

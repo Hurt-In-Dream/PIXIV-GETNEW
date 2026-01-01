@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from 'react';
-import { Play, Loader2, Sparkles } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Play, Loader2, Sparkles, Tag, TrendingUp } from 'lucide-react';
 import { addActivityLog } from './LogViewer';
 
 interface Progress {
@@ -12,23 +12,55 @@ interface Progress {
     skipped: number;
 }
 
+type CrawlMode = 'ranking' | 'tag';
+
 export default function ManualTrigger() {
     const [loading, setLoading] = useState(false);
     const [progress, setProgress] = useState<Progress | null>(null);
     const [error, setError] = useState('');
     const [limit, setLimit] = useState(10);
+    const [mode, setMode] = useState<CrawlMode>('ranking');
+    const [tags, setTags] = useState<string[]>([]);
+    const [selectedTag, setSelectedTag] = useState('');
+
+    // Fetch tags from settings
+    useEffect(() => {
+        const fetchTags = async () => {
+            try {
+                const response = await fetch('/api/settings');
+                const data = await response.json();
+                if (data.tags && data.tags.length > 0) {
+                    setTags(data.tags);
+                    setSelectedTag(data.tags[0]);
+                }
+            } catch (error) {
+                console.error('Failed to fetch tags:', error);
+            }
+        };
+        fetchTags();
+    }, []);
 
     const handleTrigger = async () => {
         setLoading(true);
         setProgress(null);
         setError('');
-        addActivityLog('info', `开始手动抓取排行榜 (${limit}张)...`);
+
+        if (mode === 'ranking') {
+            addActivityLog('info', `开始手动抓取排行榜 (${limit}张)...`);
+        } else {
+            addActivityLog('info', `开始手动抓取标签 "${selectedTag}" (${limit}张)...`);
+        }
 
         try {
+            const body: Record<string, unknown> = { mode, limit };
+            if (mode === 'tag') {
+                body.tag = selectedTag;
+            }
+
             const response = await fetch('/api/crawl', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mode: 'ranking', limit }),
+                body: JSON.stringify(body),
             });
 
             const data = await response.json();
@@ -59,9 +91,56 @@ export default function ManualTrigger() {
                 </h2>
             </div>
 
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                从每日排行榜抓取最新的图片
-            </p>
+            {/* Mode Selection */}
+            <div className="mb-4">
+                <label className="block text-xs text-gray-500 mb-2">抓取模式</label>
+                <div className="flex gap-2">
+                    <button
+                        onClick={() => setMode('ranking')}
+                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${mode === 'ranking'
+                                ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white'
+                                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                            }`}
+                    >
+                        <TrendingUp className="w-4 h-4" />
+                        排行榜
+                    </button>
+                    <button
+                        onClick={() => setMode('tag')}
+                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${mode === 'tag'
+                                ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white'
+                                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                            }`}
+                    >
+                        <Tag className="w-4 h-4" />
+                        标签搜索
+                    </button>
+                </div>
+            </div>
+
+            {/* Tag Selection (only show when mode is 'tag') */}
+            {mode === 'tag' && (
+                <div className="mb-4">
+                    <label className="block text-xs text-gray-500 mb-2">选择标签</label>
+                    {tags.length > 0 ? (
+                        <select
+                            value={selectedTag}
+                            onChange={(e) => setSelectedTag(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-sm border-none focus:ring-2 focus:ring-orange-500"
+                        >
+                            {tags.map((tag, index) => (
+                                <option key={index} value={tag}>
+                                    {tag}
+                                </option>
+                            ))}
+                        </select>
+                    ) : (
+                        <p className="text-sm text-gray-500">
+                            请先在设置中添加搜索标签
+                        </p>
+                    )}
+                </div>
+            )}
 
             {/* Limit Input */}
             <div className="mb-4">
@@ -74,16 +153,21 @@ export default function ManualTrigger() {
                         step="5"
                         value={limit}
                         onChange={(e) => setLimit(Number(e.target.value))}
-                        className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                        className={`flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer ${mode === 'ranking' ? 'accent-emerald-500' : 'accent-orange-500'
+                            }`}
                     />
-                    <span className="text-sm font-semibold text-emerald-500 w-8">{limit}</span>
+                    <span className={`text-sm font-semibold w-8 ${mode === 'ranking' ? 'text-emerald-500' : 'text-orange-500'
+                        }`}>{limit}</span>
                 </div>
             </div>
 
             <button
                 onClick={handleTrigger}
-                disabled={loading}
-                className="anime-button w-full flex items-center justify-center gap-2 !from-emerald-500 !via-teal-500 !to-cyan-500 hover:!shadow-emerald-500/25"
+                disabled={loading || (mode === 'tag' && (!selectedTag || tags.length === 0))}
+                className={`anime-button w-full flex items-center justify-center gap-2 ${mode === 'ranking'
+                        ? '!from-emerald-500 !via-teal-500 !to-cyan-500 hover:!shadow-emerald-500/25'
+                        : '!from-orange-500 !via-amber-500 !to-yellow-500 hover:!shadow-orange-500/25'
+                    }`}
             >
                 {loading ? (
                     <>
@@ -93,7 +177,7 @@ export default function ManualTrigger() {
                 ) : (
                     <>
                         <Play className="w-5 h-5" />
-                        开始抓取
+                        {mode === 'ranking' ? '抓取排行榜' : '抓取标签'}
                     </>
                 )}
             </button>

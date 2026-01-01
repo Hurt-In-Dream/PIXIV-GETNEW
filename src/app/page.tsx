@@ -6,7 +6,8 @@ import {
     ManualTrigger,
     PidFetcher,
     ImageGallery,
-    LogViewer
+    LogViewer,
+    SkipTagsManager
 } from '@/components/dashboard';
 import { Sparkles, Github, Heart } from 'lucide-react';
 
@@ -123,9 +124,10 @@ export default function Dashboard() {
                     </div>
                 </div>
 
-                {/* Log Viewer */}
-                <div className="mb-8">
+                {/* Log Viewer and Skip Tags */}
+                <div className="grid lg:grid-cols-2 gap-6 mb-8">
                     <LogViewer />
+                    <SkipTagsManager />
                 </div>
 
                 {/* Image Gallery */}

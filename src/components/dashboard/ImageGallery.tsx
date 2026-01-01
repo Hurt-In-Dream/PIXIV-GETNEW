@@ -12,7 +12,7 @@ import {
     RefreshCw,
     Trash2
 } from 'lucide-react';
-import { formatDate, truncate } from '@/lib/utils';
+// Removed unused utils import
 
 interface PixivImage {
     id: string;

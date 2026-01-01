@@ -198,39 +198,67 @@ export async function processBatch(
 }
 
 /**
- * Tags that indicate images to skip (no background, manga, or AI generated)
+ * Default skip tags (fallback if database is unavailable)
  */
-const SKIP_TAGS = [
-    // Transparent/no background
-    '透過png', '透明背景', 'transparent', 'transparent_background', 'png',
-    // Simple/solid color backgrounds  
-    '白背景', '白バック', 'white_background', 'simple_background',
-    '単色背景', 'solid_background', 'grey_background', 'gray_background',
-    // Chibi/SD style (usually have simple backgrounds)
-    'ちびキャラ', 'chibi', 'SD', 'ミニキャラ', 'デフォルメ',
-    // Character design sheets
-    'キャラクターデザイン', 'character_design', '立ち絵', 'character_sheet',
-    // Other indicators of minimal backgrounds
-    'シンプル', 'simple', '落書き', 'sketch', 'doodle',
-    // Manga/Comics (not suitable for backgrounds)
-    '漫画', 'manga', 'comic', 'コミック', '4コマ',
-    // AI Generated
-    'AI生成', 'AI-generated', 'novelai', 'midjourney', 'stable_diffusion', 'ai_generated', 'aiイラスト',
+const DEFAULT_SKIP_TAGS = [
+    '透過png', '透明背景', '白背景', '単色背景',
+    'ちびキャラ', 'chibi', 'SD',
+    '漫画', 'manga', 'comic', '4コマ',
+    'AI生成', 'novelai',
+    'モノクロ', '白黒',
+    'log', 'ログ', 'まとめ',
+    '色紙', 'VTuber', 'にじさんじ',
+    'users入り', '落書き', 'sketch', 'ドット絵',
 ];
+
+// Cache for skip tags from database
+let skipTagsCache: string[] | null = null;
+let skipTagsCacheTime: number = 0;
+const CACHE_TTL = 60000; // 1 minute cache
+
+/**
+ * Get skip tags from database or cache
+ */
+async function getSkipTags(): Promise<string[]> {
+    const now = Date.now();
+
+    // Return cached tags if still valid
+    if (skipTagsCache && (now - skipTagsCacheTime) < CACHE_TTL) {
+        return skipTagsCache;
+    }
+
+    try {
+        const supabase = createServerClient();
+        const { data, error } = await supabase
+            .from('skip_tags')
+            .select('tag');
+
+        if (error || !data || data.length === 0) {
+            return DEFAULT_SKIP_TAGS;
+        }
+
+        skipTagsCache = data.map(row => row.tag);
+        skipTagsCacheTime = now;
+        return skipTagsCache;
+    } catch {
+        return DEFAULT_SKIP_TAGS;
+    }
+}
 
 /**
  * Check if an illustration should be skipped based on tags
  */
-function shouldSkipByTags(tags: string[]): boolean {
-    const lowerTags = tags.map(t => t.toLowerCase());
-    return SKIP_TAGS.some(skipTag =>
+async function shouldSkipByTags(illustTags: string[], skipTags?: string[]): Promise<boolean> {
+    const tagsToCheck = skipTags || await getSkipTags();
+    const lowerTags = illustTags.map(t => t.toLowerCase());
+    return tagsToCheck.some(skipTag =>
         lowerTags.some(tag => tag.includes(skipTag.toLowerCase()))
     );
 }
 
 /**
  * Crawl and transfer images from ranking
- * Balances horizontal and vertical images 1:1 ratio
+ * Balances horizontal and vertical images at 1.5:1 ratio (more horizontal for wide screens)
  * Filters out images with no/simple backgrounds
  */
 export async function crawlRanking(
@@ -249,25 +277,29 @@ export async function crawlRanking(
         };
     }
 
+    // Pre-load skip tags for efficiency
+    const skipTags = await getSkipTags();
+
     let selectedIllusts: typeof result.illustrations = [];
 
     if (balanceOrientation) {
-        const halfLimit = Math.ceil(limit / 2);
+        // Target ratio: 1.5:1 (horizontal:vertical)
+        // For limit 30: 18 horizontal, 12 vertical
+        const horizontalTarget = Math.ceil(limit * 0.6); // 60% horizontal
+        const verticalTarget = Math.ceil(limit * 0.4);   // 40% vertical
         const horizontalIllusts: typeof result.illustrations = [];
         const verticalIllusts: typeof result.illustrations = [];
 
         // Separate images by orientation, filtering out bad backgrounds
+        // Don't stop early - collect as many as possible
         for (const illust of result.illustrations) {
-            // Skip images with transparent/simple background tags
-            if (shouldSkipByTags(illust.tags)) {
+            // Skip images with unsuitable tags
+            if (await shouldSkipByTags(illust.tags, skipTags)) {
                 continue;
             }
 
             if (!illust.width || !illust.height) {
-                // Unknown dimensions - add to vertical as default
-                if (verticalIllusts.length < halfLimit) {
-                    verticalIllusts.push(illust);
-                }
+                // Unknown dimensions - skip to ensure quality
                 continue;
             }
 
@@ -275,30 +307,52 @@ export async function crawlRanking(
 
             if (ratio > 1.0) {
                 // Horizontal (landscape)
-                if (horizontalIllusts.length < halfLimit) {
+                if (horizontalIllusts.length < horizontalTarget) {
                     horizontalIllusts.push(illust);
                 }
             } else {
                 // Vertical (portrait) or square
-                if (verticalIllusts.length < halfLimit) {
+                if (verticalIllusts.length < verticalTarget) {
                     verticalIllusts.push(illust);
                 }
             }
 
-            // Stop if we have enough of both
-            if (horizontalIllusts.length >= halfLimit && verticalIllusts.length >= halfLimit) {
+            // Stop only if we have enough of BOTH types
+            if (horizontalIllusts.length >= horizontalTarget && verticalIllusts.length >= verticalTarget) {
                 break;
+            }
+        }
+
+        // If we didn't get enough of one type, fill with whatever is available
+        // Prioritize horizontal since that's the user's preference
+        if (horizontalIllusts.length < horizontalTarget) {
+            // Try to fill remaining horizontal slots from remaining illustrations
+            for (const illust of result.illustrations) {
+                if (await shouldSkipByTags(illust.tags, skipTags)) continue;
+                if (!illust.width || !illust.height) continue;
+                const ratio = illust.width / illust.height;
+                if (ratio > 1.0 && !horizontalIllusts.find(i => i.id === illust.id)) {
+                    horizontalIllusts.push(illust);
+                    if (horizontalIllusts.length >= horizontalTarget) break;
+                }
             }
         }
 
         selectedIllusts = [...horizontalIllusts, ...verticalIllusts];
         await logInfo(
             `平衡筛选完成`,
-            `横屏: ${horizontalIllusts.length}张, 竖屏: ${verticalIllusts.length}张`
+            `横屏: ${horizontalIllusts.length}张, 竖屏: ${verticalIllusts.length}张 (目标比例 1.5:1)`
         );
     } else {
         // No balancing, just filter out bad backgrounds
-        selectedIllusts = result.illustrations.filter(i => !shouldSkipByTags(i.tags)).slice(0, limit);
+        const filtered: typeof result.illustrations = [];
+        for (const illust of result.illustrations) {
+            if (!(await shouldSkipByTags(illust.tags, skipTags))) {
+                filtered.push(illust);
+                if (filtered.length >= limit) break;
+            }
+        }
+        selectedIllusts = filtered;
     }
 
     return processBatch(selectedIllusts);
@@ -307,6 +361,7 @@ export async function crawlRanking(
 /**
  * Crawl and transfer images by tag
  * Also filters out images with no/simple backgrounds
+ * Uses 1.5:1 horizontal:vertical ratio
  */
 export async function crawlByTag(
     tag: string,
@@ -324,31 +379,44 @@ export async function crawlByTag(
         };
     }
 
+    // Pre-load skip tags for efficiency
+    const skipTags = await getSkipTags();
+
     // Filter out bad backgrounds and balance orientation
     let selectedIllusts: typeof result.illustrations = [];
 
     if (balanceOrientation) {
-        const halfLimit = Math.ceil(limit / 2);
+        // Target ratio: 1.5:1 (horizontal:vertical)
+        const horizontalTarget = Math.ceil(limit * 0.6); // 60% horizontal
+        const verticalTarget = Math.ceil(limit * 0.4);   // 40% vertical
         const horizontalIllusts: typeof result.illustrations = [];
         const verticalIllusts: typeof result.illustrations = [];
 
         for (const illust of result.illustrations) {
-            if (shouldSkipByTags(illust.tags)) continue;
+            if (await shouldSkipByTags(illust.tags, skipTags)) continue;
+            if (!illust.width || !illust.height) continue;
 
-            const ratio = (illust.width && illust.height) ? illust.width / illust.height : 0.8;
+            const ratio = illust.width / illust.height;
 
-            if (ratio > 1.0 && horizontalIllusts.length < halfLimit) {
+            if (ratio > 1.0 && horizontalIllusts.length < horizontalTarget) {
                 horizontalIllusts.push(illust);
-            } else if (ratio <= 1.0 && verticalIllusts.length < halfLimit) {
+            } else if (ratio <= 1.0 && verticalIllusts.length < verticalTarget) {
                 verticalIllusts.push(illust);
             }
 
-            if (horizontalIllusts.length >= halfLimit && verticalIllusts.length >= halfLimit) break;
+            if (horizontalIllusts.length >= horizontalTarget && verticalIllusts.length >= verticalTarget) break;
         }
 
         selectedIllusts = [...horizontalIllusts, ...verticalIllusts];
     } else {
-        selectedIllusts = result.illustrations.filter(i => !shouldSkipByTags(i.tags)).slice(0, limit);
+        const filtered: typeof result.illustrations = [];
+        for (const illust of result.illustrations) {
+            if (!(await shouldSkipByTags(illust.tags, skipTags))) {
+                filtered.push(illust);
+                if (filtered.length >= limit) break;
+            }
+        }
+        selectedIllusts = filtered;
     }
 
     return processBatch(selectedIllusts);

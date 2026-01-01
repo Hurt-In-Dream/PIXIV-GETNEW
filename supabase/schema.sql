@@ -54,6 +54,45 @@ CREATE TABLE IF NOT EXISTS crawler_logs (
 CREATE INDEX IF NOT EXISTS idx_crawler_logs_created_at ON crawler_logs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_crawler_logs_level ON crawler_logs(level);
 
+-- Skip tags table (for filtering unsuitable images)
+CREATE TABLE IF NOT EXISTS skip_tags (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  tag TEXT NOT NULL UNIQUE,
+  translation TEXT,
+  category TEXT DEFAULT 'other',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Insert default skip tags
+INSERT INTO skip_tags (tag, translation, category) VALUES
+  ('透過png', '透明PNG', 'background'),
+  ('透明背景', '透明背景', 'background'),
+  ('白背景', '白色背景', 'background'),
+  ('単色背景', '单色背景', 'background'),
+  ('ちびキャラ', 'Q版角色', 'style'),
+  ('chibi', 'Q版', 'style'),
+  ('SD', 'SD角色', 'style'),
+  ('漫画', '漫画', 'type'),
+  ('manga', '漫画', 'type'),
+  ('comic', '漫画', 'type'),
+  ('4コマ', '四格漫画', 'type'),
+  ('AI生成', 'AI生成', 'ai'),
+  ('novelai', 'NovelAI', 'ai'),
+  ('モノクロ', '黑白/单色', 'color'),
+  ('白黒', '黑白', 'color'),
+  ('まとめ', '合集/汇总', 'text'),
+  ('ログ', 'Log/日志', 'text'),
+  ('log', 'Log/日志', 'text'),
+  ('色紙', '色纸', 'format'),
+  ('VTuber', '虚拟主播', 'vtuber'),
+  ('にじさんじ', '彩虹社', 'vtuber'),
+  ('ホロライブ', 'Hololive', 'vtuber'),
+  ('users入り', '收藏数标记', 'meta'),
+  ('落書き', '涂鸦/草稿', 'draft'),
+  ('sketch', '草稿', 'draft'),
+  ('ドット絵', '像素画', 'style')
+ON CONFLICT (tag) DO NOTHING;
+
 -- Enable Row Level Security (optional, for production)
 -- ALTER TABLE pixiv_images ENABLE ROW LEVEL SECURITY;
 -- ALTER TABLE crawler_settings ENABLE ROW LEVEL SECURITY;

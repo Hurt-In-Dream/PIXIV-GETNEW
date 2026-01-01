@@ -1,6 +1,6 @@
 /**
  * Images API Route
- * List and manage stored images
+ * List and manage stored images with source filtering
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '20');
     const search = searchParams.get('search') || '';
+    const source = searchParams.get('source') || 'ranking'; // ranking, r18, tag, pid, all
 
     const offset = (page - 1) * limit;
 
@@ -20,9 +21,43 @@ export async function GET(request: NextRequest) {
         let query = supabase
             .from('pixiv_images')
             .select('*', { count: 'exact' })
-            .order('created_at', { ascending: false })
-            .not('r2_url', 'ilike', '%R18/%')
-            .range(offset, offset + limit - 1);
+            .order('created_at', { ascending: false });
+
+        // Filter by source based on r2_url path
+        switch (source) {
+            case 'ranking':
+                // Normal ranking: no prefix (h/ or v/ directly)
+                query = query
+                    .not('r2_url', 'ilike', '%R18/%')
+                    .not('r2_url', 'ilike', '%tag/%')
+                    .not('r2_url', 'ilike', '%pid/%');
+                break;
+            case 'r18':
+                // R18 content
+                query = query.ilike('r2_url', '%R18/%');
+                break;
+            case 'tag':
+                // Tag search results
+                query = query
+                    .ilike('r2_url', '%tag/%')
+                    .not('r2_url', 'ilike', '%R18/%');
+                break;
+            case 'pid':
+                // PID fetch results
+                query = query
+                    .ilike('r2_url', '%pid/%')
+                    .not('r2_url', 'ilike', '%R18/%');
+                break;
+            case 'all':
+                // Show all images (no filter)
+                break;
+            default:
+                // Default: exclude R18
+                query = query.not('r2_url', 'ilike', '%R18/%');
+        }
+
+        // Apply pagination
+        query = query.range(offset, offset + limit - 1);
 
         if (search) {
             query = query.or(`title.ilike.%${search}%,artist.ilike.%${search}%`);

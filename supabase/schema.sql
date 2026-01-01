@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS pixiv_images (
   tags TEXT[] DEFAULT '{}',
   original_url TEXT NOT NULL,
   r2_url TEXT,
+  github_synced TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -20,6 +21,9 @@ CREATE TABLE IF NOT EXISTS pixiv_images (
 CREATE INDEX IF NOT EXISTS idx_pixiv_images_pid ON pixiv_images(pid);
 CREATE INDEX IF NOT EXISTS idx_pixiv_images_created_at ON pixiv_images(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_pixiv_images_artist ON pixiv_images(artist);
+
+-- Add github_synced column if table exists (for migration)
+ALTER TABLE pixiv_images ADD COLUMN IF NOT EXISTS github_synced TIMESTAMP WITH TIME ZONE;
 
 -- Crawler settings table
 CREATE TABLE IF NOT EXISTS crawler_settings (

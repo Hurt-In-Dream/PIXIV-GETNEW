@@ -7,7 +7,8 @@ import {
     PidFetcher,
     ImageGallery,
     LogViewer,
-    SkipTagsManager
+    SkipTagsManager,
+    GitHubSync
 } from '@/components/dashboard';
 import LoginScreen from '@/components/LoginScreen';
 import { Sparkles, Github, LogOut, Loader2 } from 'lucide-react';
@@ -118,7 +119,7 @@ export default function Dashboard() {
 
                         <div className="flex items-center gap-2">
                             <a
-                                href="https://github.com"
+                                href="https://github.com/Hurt-In-Dream/PIXIV-GETNEW"
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="p-2 rounded-lg hover:bg-white/5 transition-colors"
@@ -184,6 +185,11 @@ export default function Dashboard() {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
                     <LogViewer />
                     <SkipTagsManager />
+                </div>
+
+                {/* GitHub Sync */}
+                <div className="mb-8">
+                    <GitHubSync />
                 </div>
 
                 {/* Image Gallery */}

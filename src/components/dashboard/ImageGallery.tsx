@@ -13,7 +13,8 @@ import {
     Trash2,
     X,
     Filter,
-    Plus
+    Plus,
+    FolderOpen
 } from 'lucide-react';
 
 interface PixivImage {
@@ -34,6 +35,16 @@ interface PaginatedResponse {
     totalPages: number;
 }
 
+type ImageSource = 'ranking' | 'r18' | 'tag' | 'pid' | 'all';
+
+const SOURCE_OPTIONS: { value: ImageSource; label: string; color: string }[] = [
+    { value: 'ranking', label: '排行榜', color: 'from-blue-500 to-indigo-500' },
+    { value: 'tag', label: '标签搜索', color: 'from-green-500 to-emerald-500' },
+    { value: 'pid', label: 'PID抓取', color: 'from-orange-500 to-amber-500' },
+    { value: 'r18', label: 'R-18', color: 'from-rose-500 to-red-500' },
+    { value: 'all', label: '全部', color: 'from-purple-500 to-pink-500' },
+];
+
 export default function ImageGallery() {
     const [images, setImages] = useState<PixivImage[]>([]);
     const [loading, setLoading] = useState(true);
@@ -41,6 +52,7 @@ export default function ImageGallery() {
     const [totalPages, setTotalPages] = useState(1);
     const [total, setTotal] = useState(0);
     const [copiedId, setCopiedId] = useState<string | null>(null);
+    const [source, setSource] = useState<ImageSource>('ranking');
 
     // Delete modal state
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -51,7 +63,7 @@ export default function ImageGallery() {
     const fetchImages = useCallback(async () => {
         setLoading(true);
         try {
-            const response = await fetch(`/api/images?page=${page}&limit=12`);
+            const response = await fetch(`/api/images?page=${page}&limit=12&source=${source}`);
             const data: PaginatedResponse = await response.json();
 
             setImages(data.images);
@@ -62,11 +74,17 @@ export default function ImageGallery() {
         } finally {
             setLoading(false);
         }
-    }, [page]);
+    }, [page, source]);
 
     useEffect(() => {
         fetchImages();
     }, [fetchImages]);
+
+    // Reset to page 1 when source changes
+    const handleSourceChange = (newSource: ImageSource) => {
+        setSource(newSource);
+        setPage(1);
+    };
 
     const copyToClipboard = async (text: string, id: string) => {
         try {
@@ -144,7 +162,7 @@ export default function ImageGallery() {
     return (
         <>
             <div className="card-anime p-6">
-                <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
                         <div className="p-2 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500">
                             <Images className="w-5 h-5 text-white" />
@@ -165,6 +183,27 @@ export default function ImageGallery() {
                         <RefreshCw className={`w-5 h-5 text-gray-500 ${loading ? 'animate-spin' : ''}`} />
                     </button>
                 </div>
+
+                {/* Source Filter */}
+                <div className="flex flex-wrap gap-2 mb-4">
+                    <div className="flex items-center gap-1 text-sm text-gray-500 mr-2">
+                        <FolderOpen className="w-4 h-4" />
+                        <span>来源:</span>
+                    </div>
+                    {SOURCE_OPTIONS.map((option) => (
+                        <button
+                            key={option.value}
+                            onClick={() => handleSourceChange(option.value)}
+                            className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${source === option.value
+                                    ? `bg-gradient-to-r ${option.color} text-white shadow-md`
+                                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                                }`}
+                        >
+                            {option.label}
+                        </button>
+                    ))}
+                </div>
+
 
                 {loading && images.length === 0 ? (
                     <div className="flex items-center justify-center py-12">

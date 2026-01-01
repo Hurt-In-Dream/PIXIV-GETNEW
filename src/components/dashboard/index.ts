@@ -4,3 +4,4 @@ export { default as PidFetcher } from './PidFetcher';
 export { default as ImageGallery } from './ImageGallery';
 export { default as LogViewer } from './LogViewer';
 export { default as SkipTagsManager } from './SkipTagsManager';
+export { default as GitHubSync } from './GitHubSync';

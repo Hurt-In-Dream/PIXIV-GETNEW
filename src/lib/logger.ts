@@ -111,3 +111,24 @@ export async function logError(message: string, details?: string): Promise<void>
     console.error(`[ERROR] ${message}`, details || '');
     await saveLog({ level: 'error', message, details });
 }
+
+/**
+ * Log activity with specified level
+ */
+export async function logActivity(level: LogLevel, message: string, details?: string): Promise<void> {
+    switch (level) {
+        case 'info':
+            await logInfo(message, details);
+            break;
+        case 'success':
+            await logSuccess(message, details);
+            break;
+        case 'warning':
+            await logWarning(message, details);
+            break;
+        case 'error':
+            await logError(message, details);
+            break;
+    }
+}
+

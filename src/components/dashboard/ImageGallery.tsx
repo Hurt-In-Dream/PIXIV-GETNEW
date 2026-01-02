@@ -275,18 +275,18 @@ export default function ImageGallery() {
                     </div>
                 ) : (
                     <>
-                        {/* Image Grid */}
-                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        {/* Masonry Image Grid */}
+                        <div className="columns-2 md:columns-3 lg:columns-4 gap-4 space-y-4">
                             {images.map((image) => (
                                 <div
                                     key={image.id}
-                                    className="group relative aspect-square rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-800"
+                                    className="group relative break-inside-avoid rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-800 mb-4"
                                 >
                                     {/* Image */}
                                     <img
                                         src={image.r2_url || `https://pixiv.re/${image.pid}.jpg`}
                                         alt={image.title}
-                                        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
+                                        className="w-full h-auto object-cover transition-transform duration-300 group-hover:scale-105"
                                         loading="lazy"
                                         onError={(e) => {
                                             const target = e.target as HTMLImageElement;
@@ -355,7 +355,7 @@ export default function ImageGallery() {
                                     </div>
 
                                     {/* PID Badge */}
-                                    <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/50 text-white text-xs font-mono">
+                                    <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/50 backdrop-blur-sm text-white text-xs font-mono">
                                         {image.pid}
                                     </div>
                                 </div>

@@ -14,7 +14,8 @@ import {
     X,
     Filter,
     Plus,
-    FolderOpen
+    FolderOpen,
+    Heart
 } from 'lucide-react';
 
 interface PixivImage {
@@ -59,6 +60,13 @@ export default function ImageGallery() {
     const [imageToDelete, setImageToDelete] = useState<PixivImage | null>(null);
     const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
     const [deleting, setDeleting] = useState(false);
+
+    // Like modal state
+    const [likeModalOpen, setLikeModalOpen] = useState(false);
+    const [imageToLike, setImageToLike] = useState<PixivImage | null>(null);
+    const [likedTags, setLikedTags] = useState<Set<string>>(new Set());
+    const [liking, setLiking] = useState(false);
+    const [likeSuccess, setLikeSuccess] = useState(false);
 
     const fetchImages = useCallback(async () => {
         setLoading(true);
@@ -159,6 +167,56 @@ export default function ImageGallery() {
         }
     };
 
+    // Like functionality
+    const openLikeModal = (image: PixivImage, e: React.MouseEvent) => {
+        e.stopPropagation();
+        setImageToLike(image);
+        setLikedTags(new Set());
+        setLikeSuccess(false);
+        setLikeModalOpen(true);
+    };
+
+    const toggleLikedTag = (tag: string) => {
+        setLikedTags(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(tag)) {
+                newSet.delete(tag);
+            } else {
+                newSet.add(tag);
+            }
+            return newSet;
+        });
+    };
+
+    const confirmLike = async () => {
+        if (!imageToLike || likedTags.size === 0) return;
+
+        setLiking(true);
+
+        try {
+            const tagsArray = Array.from(likedTags);
+            for (const tag of tagsArray) {
+                await fetch('/api/favorite-tags', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tag, tag_jp: tag }),
+                });
+            }
+
+            setLikeSuccess(true);
+            setTimeout(() => {
+                setLikeModalOpen(false);
+                setImageToLike(null);
+                setLikedTags(new Set());
+                setLikeSuccess(false);
+            }, 1500);
+        } catch (error) {
+            console.error('Failed to like tags:', error);
+        } finally {
+            setLiking(false);
+        }
+    };
+
     return (
         <>
             <div className="card-anime p-6">
@@ -195,8 +253,8 @@ export default function ImageGallery() {
                             key={option.value}
                             onClick={() => handleSourceChange(option.value)}
                             className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${source === option.value
-                                    ? `bg-gradient-to-r ${option.color} text-white shadow-md`
-                                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                                ? `bg-gradient-to-r ${option.color} text-white shadow-md`
+                                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
                                 }`}
                         >
                             {option.label}
@@ -249,6 +307,15 @@ export default function ImageGallery() {
                                             </p>
 
                                             <div className="flex items-center gap-2 mt-2">
+                                                {/* Like Button */}
+                                                <button
+                                                    onClick={(e) => openLikeModal(image, e)}
+                                                    className="p-1.5 rounded-lg bg-pink-500/20 hover:bg-pink-500/40 transition-colors"
+                                                    title="喜欢这张图的标签"
+                                                >
+                                                    <Heart className="w-4 h-4 text-pink-400" />
+                                                </button>
+
                                                 {/* Copy R2 URL */}
                                                 {image.r2_url && (
                                                     <button
@@ -322,6 +389,108 @@ export default function ImageGallery() {
                     </>
                 )}
             </div>
+
+            {/* Like Modal - Select Favorite Tags */}
+            {likeModalOpen && imageToLike && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                    <div className="bg-white dark:bg-gray-900 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl max-h-[80vh] overflow-y-auto">
+                        <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-2">
+                                <Heart className="w-5 h-5 text-pink-500" />
+                                <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+                                    喜欢的标签
+                                </h3>
+                            </div>
+                            <button
+                                onClick={() => setLikeModalOpen(false)}
+                                className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+                            >
+                                <X className="w-5 h-5 text-gray-500" />
+                            </button>
+                        </div>
+
+                        {/* Image Preview */}
+                        <div className="mb-4">
+                            <div className="aspect-video rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 mb-2">
+                                <img
+                                    src={imageToLike.r2_url || `https://pixiv.re/${imageToLike.pid}.jpg`}
+                                    alt={imageToLike.title}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                        const target = e.target as HTMLImageElement;
+                                        target.src = `https://pixiv.re/${imageToLike.pid}.jpg`;
+                                    }}
+                                />
+                            </div>
+                            <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                {imageToLike.title}
+                            </p>
+                        </div>
+
+                        {/* Tag Selection */}
+                        {imageToLike.tags && imageToLike.tags.length > 0 ? (
+                            <div className="mb-4">
+                                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                                    选择你喜欢的标签，以后会优先抓取带有这些标签的图片：
+                                </p>
+                                <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-2 rounded-lg bg-gray-50 dark:bg-gray-800">
+                                    {imageToLike.tags.map((tag, index) => (
+                                        <button
+                                            key={index}
+                                            onClick={() => toggleLikedTag(tag)}
+                                            className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${likedTags.has(tag)
+                                                ? 'bg-gradient-to-r from-pink-500 to-rose-500 text-white shadow-md'
+                                                : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                                                }`}
+                                        >
+                                            {likedTags.has(tag) && <Heart className="w-3 h-3 fill-current" />}
+                                            {tag}
+                                        </button>
+                                    ))}
+                                </div>
+                                {likedTags.size > 0 && (
+                                    <p className="text-xs text-pink-500 mt-2 flex items-center gap-1">
+                                        <Heart className="w-3 h-3 fill-current" />
+                                        已选择 {likedTags.size} 个喜欢的标签
+                                    </p>
+                                )}
+                            </div>
+                        ) : (
+                            <p className="text-sm text-gray-500 mb-4">这张图片没有标签信息</p>
+                        )}
+
+                        {/* Success Message */}
+                        {likeSuccess && (
+                            <div className="mb-4 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 flex items-center gap-2">
+                                <Check className="w-5 h-5" />
+                                <span className="text-sm">标签已添加到喜欢列表！</span>
+                            </div>
+                        )}
+
+                        {/* Actions */}
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => setLikeModalOpen(false)}
+                                className="flex-1 px-4 py-2 rounded-xl bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                            >
+                                取消
+                            </button>
+                            <button
+                                onClick={confirmLike}
+                                disabled={liking || likedTags.size === 0 || likeSuccess}
+                                className="flex-1 px-4 py-2 rounded-xl bg-gradient-to-r from-pink-500 to-rose-500 text-white font-medium hover:opacity-90 transition-opacity flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                                {liking ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                    <Heart className="w-4 h-4" />
+                                )}
+                                确认喜欢
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Delete Confirmation Modal with Tag Selection */}
             {deleteModalOpen && imageToDelete && (

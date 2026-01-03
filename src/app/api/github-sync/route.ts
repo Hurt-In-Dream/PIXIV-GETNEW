@@ -329,6 +329,54 @@ async function batchUploadToGitHub(
 }
 
 /**
+ * Update counts.json file with current image counts
+ */
+async function updateCountsJson(): Promise<boolean> {
+    try {
+        // Get current counts from GitHub
+        const counts: Record<string, number> = {};
+
+        for (const [key, config] of Object.entries(SYNC_CONFIG)) {
+            const count = await getExistingFileCount(config.githubDir);
+            counts[key] = count;
+        }
+
+        // Create counts.json content
+        const countsData = {
+            ...counts,
+            updatedAt: new Date().toISOString(),
+        };
+        const content = Buffer.from(JSON.stringify(countsData, null, 2)).toString('base64');
+
+        // Get latest commit
+        const latestCommitSha = await getLatestCommitSha();
+        if (!latestCommitSha) return false;
+
+        const treeSha = await getTreeSha(latestCommitSha);
+        if (!treeSha) return false;
+
+        // Create blob for counts.json
+        const blobSha = await createBlob(content);
+        if (!blobSha) return false;
+
+        // Create tree with counts.json
+        const newTreeSha = await createTree(treeSha, [{ path: 'counts.json', blobSha }]);
+        if (!newTreeSha) return false;
+
+        // Create commit
+        const newCommitSha = await createCommit('Update counts.json', newTreeSha, latestCommitSha);
+        if (!newCommitSha) return false;
+
+        // Update branch
+        return await updateBranchRef(newCommitSha);
+    } catch (error) {
+        console.error('Failed to update counts.json:', error);
+        return false;
+    }
+}
+
+
+/**
  * Get existing file count in GitHub directory
  */
 async function getExistingFileCount(dir: string): Promise<number> {
@@ -527,6 +575,9 @@ export async function POST(request: NextRequest) {
                     .eq('id', img.id);
             }
             result.uploaded = filesToUpload.length;
+
+            // Update counts.json for the random image API
+            await updateCountsJson();
         } else {
             result.errors.push(uploadResult.error || 'Batch upload failed');
         }

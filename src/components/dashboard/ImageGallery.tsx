@@ -15,7 +15,8 @@ import {
     Filter,
     Plus,
     FolderOpen,
-    Heart
+    Heart,
+    ImageOff
 } from 'lucide-react';
 
 interface PixivImage {
@@ -45,6 +46,162 @@ const SOURCE_OPTIONS: { value: ImageSource; label: string; color: string }[] = [
     { value: 'r18', label: 'R-18', color: 'from-rose-500 to-red-500' },
     { value: 'all', label: '全部', color: 'from-purple-500 to-pink-500' },
 ];
+
+// Image fallback sources
+const getImageSources = (pid: number, r2Url: string | null): string[] => {
+    const sources: string[] = [];
+    if (r2Url) sources.push(r2Url);
+    // Multiple proxy mirrors for better availability
+    sources.push(`https://pixiv.re/${pid}.jpg`);
+    sources.push(`https://pixiv.nl/${pid}.jpg`);
+    sources.push(`https://i.pixiv.re/${pid}.jpg`);
+    return sources;
+};
+
+// Optimized Image Component with loading state and fallback
+function GalleryImage({
+    image,
+    onLike,
+    onCopy,
+    onDelete,
+    copiedId
+}: {
+    image: PixivImage;
+    onLike: (image: PixivImage, e: React.MouseEvent) => void;
+    onCopy: (url: string, id: string) => void;
+    onDelete: (image: PixivImage) => void;
+    copiedId: string | null;
+}) {
+    const [imgLoaded, setImgLoaded] = useState(false);
+    const [imgError, setImgError] = useState(false);
+    const [currentSourceIndex, setCurrentSourceIndex] = useState(0);
+
+    const sources = getImageSources(image.pid, image.r2_url);
+    const currentSrc = sources[currentSourceIndex];
+
+    const handleError = () => {
+        if (currentSourceIndex < sources.length - 1) {
+            setCurrentSourceIndex(prev => prev + 1);
+            setImgLoaded(false);
+        } else {
+            setImgError(true);
+        }
+    };
+
+    const handleLoad = () => {
+        setImgLoaded(true);
+    };
+
+    return (
+        <div className="group relative break-inside-avoid rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-800 mb-4">
+            {/* Loading skeleton */}
+            {!imgLoaded && !imgError && (
+                <div className="absolute inset-0 flex items-center justify-center bg-gray-200 dark:bg-gray-700 animate-pulse">
+                    <div className="flex flex-col items-center gap-2 text-gray-400">
+                        <Loader2 className="w-6 h-6 animate-spin" />
+                        <span className="text-xs">加载中...</span>
+                    </div>
+                </div>
+            )}
+
+            {/* Error state */}
+            {imgError && (
+                <div className="aspect-square flex items-center justify-center bg-gray-200 dark:bg-gray-700">
+                    <div className="flex flex-col items-center gap-2 text-gray-400">
+                        <ImageOff className="w-8 h-8" />
+                        <span className="text-xs">加载失败</span>
+                        <a
+                            href={`https://www.pixiv.net/artworks/${image.pid}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-blue-500 hover:underline"
+                        >
+                            在 Pixiv 查看
+                        </a>
+                    </div>
+                </div>
+            )}
+
+            {/* Image */}
+            {!imgError && (
+                <img
+                    src={currentSrc}
+                    alt={image.title}
+                    className={`w-full h-auto object-cover transition-all duration-300 ${imgLoaded ? 'opacity-100' : 'opacity-0'
+                        } group-hover:scale-105`}
+                    loading="lazy"
+                    onLoad={handleLoad}
+                    onError={handleError}
+                />
+            )}
+
+            {/* Overlay - only show when loaded */}
+            {imgLoaded && (
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                    <div className="absolute bottom-0 left-0 right-0 p-3">
+                        <p className="text-white text-sm font-medium truncate">
+                            {image.title}
+                        </p>
+                        <p className="text-white/70 text-xs truncate">
+                            by {image.artist}
+                        </p>
+
+                        <div className="flex items-center gap-2 mt-2">
+                            {/* Like Button */}
+                            <button
+                                onClick={(e) => onLike(image, e)}
+                                className="p-1.5 rounded-lg bg-pink-500/20 hover:bg-pink-500/40 transition-colors"
+                                title="喜欢这张图的标签"
+                            >
+                                <Heart className="w-4 h-4 text-pink-400" />
+                            </button>
+
+                            {/* Copy R2 URL */}
+                            {image.r2_url && (
+                                <button
+                                    onClick={() => onCopy(image.r2_url!, image.id)}
+                                    className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
+                                    title="复制 R2 链接"
+                                >
+                                    {copiedId === image.id ? (
+                                        <Check className="w-4 h-4 text-green-400" />
+                                    ) : (
+                                        <Copy className="w-4 h-4 text-white" />
+                                    )}
+                                </button>
+                            )}
+
+                            {/* Open Pixiv */}
+                            <a
+                                href={`https://www.pixiv.net/artworks/${image.pid}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
+                                title="在 Pixiv 查看"
+                            >
+                                <ExternalLink className="w-4 h-4 text-white" />
+                            </a>
+
+                            {/* Delete */}
+                            <button
+                                onClick={() => onDelete(image)}
+                                className="p-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/40 transition-colors ml-auto"
+                                title="删除"
+                            >
+                                <Trash2 className="w-4 h-4 text-red-400" />
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* PID Badge */}
+            <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/50 backdrop-blur-sm text-white text-xs font-mono">
+                {image.pid}
+            </div>
+        </div>
+    );
+}
 
 export default function ImageGallery() {
     const [images, setImages] = useState<PixivImage[]>([]);
@@ -276,89 +433,16 @@ export default function ImageGallery() {
                 ) : (
                     <>
                         {/* Masonry Image Grid */}
-                        <div className="columns-2 md:columns-3 lg:columns-4 gap-4 space-y-4">
+                        <div className="columns-2 md:columns-3 lg:columns-4 gap-4">
                             {images.map((image) => (
-                                <div
+                                <GalleryImage
                                     key={image.id}
-                                    className="group relative break-inside-avoid rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-800 mb-4"
-                                >
-                                    {/* Image */}
-                                    <img
-                                        src={image.r2_url || `https://pixiv.re/${image.pid}.jpg`}
-                                        alt={image.title}
-                                        className="w-full h-auto object-cover transition-transform duration-300 group-hover:scale-105"
-                                        loading="lazy"
-                                        onError={(e) => {
-                                            const target = e.target as HTMLImageElement;
-                                            if (target.src !== `https://pixiv.re/${image.pid}.jpg`) {
-                                                target.src = `https://pixiv.re/${image.pid}.jpg`;
-                                            }
-                                        }}
-                                    />
-
-                                    {/* Overlay */}
-                                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                                        <div className="absolute bottom-0 left-0 right-0 p-3">
-                                            <p className="text-white text-sm font-medium truncate">
-                                                {image.title}
-                                            </p>
-                                            <p className="text-white/70 text-xs truncate">
-                                                by {image.artist}
-                                            </p>
-
-                                            <div className="flex items-center gap-2 mt-2">
-                                                {/* Like Button */}
-                                                <button
-                                                    onClick={(e) => openLikeModal(image, e)}
-                                                    className="p-1.5 rounded-lg bg-pink-500/20 hover:bg-pink-500/40 transition-colors"
-                                                    title="喜欢这张图的标签"
-                                                >
-                                                    <Heart className="w-4 h-4 text-pink-400" />
-                                                </button>
-
-                                                {/* Copy R2 URL */}
-                                                {image.r2_url && (
-                                                    <button
-                                                        onClick={() => copyToClipboard(image.r2_url!, image.id)}
-                                                        className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
-                                                        title="复制 R2 链接"
-                                                    >
-                                                        {copiedId === image.id ? (
-                                                            <Check className="w-4 h-4 text-green-400" />
-                                                        ) : (
-                                                            <Copy className="w-4 h-4 text-white" />
-                                                        )}
-                                                    </button>
-                                                )}
-
-                                                {/* Open Pixiv */}
-                                                <a
-                                                    href={`https://www.pixiv.net/artworks/${image.pid}`}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
-                                                    title="在 Pixiv 查看"
-                                                >
-                                                    <ExternalLink className="w-4 h-4 text-white" />
-                                                </a>
-
-                                                {/* Delete */}
-                                                <button
-                                                    onClick={() => openDeleteModal(image)}
-                                                    className="p-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/40 transition-colors ml-auto"
-                                                    title="删除"
-                                                >
-                                                    <Trash2 className="w-4 h-4 text-red-400" />
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* PID Badge */}
-                                    <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/50 backdrop-blur-sm text-white text-xs font-mono">
-                                        {image.pid}
-                                    </div>
-                                </div>
+                                    image={image}
+                                    onLike={openLikeModal}
+                                    onCopy={copyToClipboard}
+                                    onDelete={openDeleteModal}
+                                    copiedId={copiedId}
+                                />
                             ))}
                         </div>
 

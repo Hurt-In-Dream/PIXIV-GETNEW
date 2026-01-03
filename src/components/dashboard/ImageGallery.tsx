@@ -48,13 +48,24 @@ const SOURCE_OPTIONS: { value: ImageSource; label: string; color: string }[] = [
 ];
 
 // Image fallback sources
-const getImageSources = (pid: number, r2Url: string | null): string[] => {
+const getImageSources = (pid: number, r2Url: string | null, originalUrl?: string): string[] => {
     const sources: string[] = [];
+
+    // 1. R2 storage (fastest if available)
     if (r2Url) sources.push(r2Url);
-    // Multiple proxy mirrors for better availability
+
+    // 2. i.yuki.sh mirror (use original pximg path)
+    if (originalUrl) {
+        // Convert: https://i.pximg.net/... -> https://i.yuki.sh/...
+        const yukiUrl = originalUrl.replace('i.pximg.net', 'i.yuki.sh');
+        sources.push(yukiUrl);
+    }
+
+    // 3. Other Pixiv proxy mirrors as fallback
     sources.push(`https://pixiv.re/${pid}.jpg`);
     sources.push(`https://pixiv.nl/${pid}.jpg`);
     sources.push(`https://i.pixiv.re/${pid}.jpg`);
+
     return sources;
 };
 
@@ -76,7 +87,7 @@ function GalleryImage({
     const [imgError, setImgError] = useState(false);
     const [currentSourceIndex, setCurrentSourceIndex] = useState(0);
 
-    const sources = getImageSources(image.pid, image.r2_url);
+    const sources = getImageSources(image.pid, image.r2_url, image.original_url);
     const currentSrc = sources[currentSourceIndex];
 
     const handleError = () => {

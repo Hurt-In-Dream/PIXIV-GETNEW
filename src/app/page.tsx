@@ -8,7 +8,8 @@ import {
     ImageGallery,
     LogViewer,
     SkipTagsManager,
-    GitHubSync
+    GitHubSync,
+    CleanupTool
 } from '@/components/dashboard';
 import LoginScreen from '@/components/LoginScreen';
 import { Sparkles, Github, LogOut, Loader2 } from 'lucide-react';
@@ -187,9 +188,10 @@ export default function Dashboard() {
                     <SkipTagsManager />
                 </div>
 
-                {/* GitHub Sync */}
-                <div className="mb-8">
+                {/* GitHub Sync and Cleanup */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
                     <GitHubSync />
+                    <CleanupTool />
                 </div>
 
                 {/* Image Gallery */}

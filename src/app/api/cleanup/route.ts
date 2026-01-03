@@ -81,7 +81,24 @@ async function analyzeR2Orphans() {
         .select('r2_url')
         .not('r2_url', 'is', null);
 
-    const dbUrls = new Set(dbImages?.map(img => img.r2_url) || []);
+    // Extract keys from database URLs (the path part after the domain)
+    const dbKeys = new Set<string>();
+    const r2PublicUrl = process.env.R2_PUBLIC_URL || '';
+
+    for (const img of dbImages || []) {
+        if (img.r2_url) {
+            try {
+                // Try to extract the key from the URL
+                const url = new URL(img.r2_url);
+                const key = url.pathname.slice(1); // Remove leading /
+                dbKeys.add(key);
+            } catch {
+                // If URL parsing fails, try simple string replacement
+                const key = img.r2_url.replace(r2PublicUrl + '/', '').replace(r2PublicUrl, '');
+                if (key) dbKeys.add(key);
+            }
+        }
+    }
 
     // List all files in R2
     const r2Files: string[] = [];
@@ -105,22 +122,29 @@ async function analyzeR2Orphans() {
     } while (continuationToken);
 
     // Find orphaned files (in R2 but not in database)
-    const r2PublicUrl = process.env.R2_PUBLIC_URL || '';
     const orphanedFiles: string[] = [];
 
     for (const key of r2Files) {
-        const fullUrl = `${r2PublicUrl}/${key}`;
-        if (!dbUrls.has(fullUrl)) {
+        if (!dbKeys.has(key)) {
             orphanedFiles.push(key);
         }
     }
 
+    // Debug info
+    const sampleDbKeys = Array.from(dbKeys).slice(0, 3);
+    const sampleR2Keys = r2Files.slice(0, 3);
+
     return NextResponse.json({
         totalR2Files: r2Files.length,
-        totalDbRecords: dbUrls.size,
+        totalDbRecords: dbKeys.size,
         orphanedCount: orphanedFiles.length,
-        orphanedFiles: orphanedFiles.slice(0, 50), // Show first 50
+        orphanedFiles: orphanedFiles.slice(0, 50),
         message: orphanedFiles.length > 50 ? `...and ${orphanedFiles.length - 50} more` : undefined,
+        debug: {
+            sampleDbKeys,
+            sampleR2Keys,
+            r2PublicUrl,
+        },
     });
 }
 
@@ -209,7 +233,22 @@ async function cleanR2Orphans(dryRun: boolean) {
         .select('r2_url')
         .not('r2_url', 'is', null);
 
-    const dbUrls = new Set(dbImages?.map(img => img.r2_url) || []);
+    // Extract keys from database URLs
+    const dbKeys = new Set<string>();
+    const r2PublicUrl = process.env.R2_PUBLIC_URL || '';
+
+    for (const img of dbImages || []) {
+        if (img.r2_url) {
+            try {
+                const url = new URL(img.r2_url);
+                const key = url.pathname.slice(1);
+                dbKeys.add(key);
+            } catch {
+                const key = img.r2_url.replace(r2PublicUrl + '/', '').replace(r2PublicUrl, '');
+                if (key) dbKeys.add(key);
+            }
+        }
+    }
 
     // List all files in R2
     const r2Files: string[] = [];
@@ -233,12 +272,10 @@ async function cleanR2Orphans(dryRun: boolean) {
     } while (continuationToken);
 
     // Find orphaned files
-    const r2PublicUrl = process.env.R2_PUBLIC_URL || '';
     const orphanedFiles: string[] = [];
 
     for (const key of r2Files) {
-        const fullUrl = `${r2PublicUrl}/${key}`;
-        if (!dbUrls.has(fullUrl)) {
+        if (!dbKeys.has(key)) {
             orphanedFiles.push(key);
         }
     }

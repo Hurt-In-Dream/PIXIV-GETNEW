@@ -288,7 +288,7 @@ async function cleanR2Orphans(dryRun: boolean) {
 }
 
 /**
- * Clean GitHub category (delete all webp files in a category)
+ * Clean GitHub category using Git Tree API (batch delete = single commit)
  */
 async function cleanGitHubCategory(category: string, dryRun: boolean) {
     if (!GITHUB_TOKEN) {
@@ -314,8 +314,17 @@ async function cleanGitHubCategory(category: string, dryRun: boolean) {
 
     const files = await response.json();
     const webpFiles = Array.isArray(files)
-        ? files.filter((f: { name: string; sha: string }) => f.name.endsWith('.webp'))
+        ? files.filter((f: { name: string; sha: string; path: string }) => f.name.endsWith('.webp'))
         : [];
+
+    if (webpFiles.length === 0) {
+        return NextResponse.json({
+            dryRun,
+            category,
+            wouldDelete: 0,
+            message: 'No files to delete',
+        });
+    }
 
     if (dryRun) {
         return NextResponse.json({
@@ -323,69 +332,155 @@ async function cleanGitHubCategory(category: string, dryRun: boolean) {
             category,
             wouldDelete: webpFiles.length,
             files: webpFiles.map((f: { name: string }) => f.name).slice(0, 20),
-            message: 'Set dryRun: false to actually delete',
+            message: 'Set dryRun: false to actually delete (will be a single commit)',
         });
     }
 
-    // Delete files one by one (GitHub API limitation)
-    let deleted = 0;
-    const errors: string[] = [];
-
-    for (const file of webpFiles) {
-        try {
-            const deleteResponse = await fetch(
-                `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${dir}/${file.name}`,
-                {
-                    method: 'DELETE',
-                    headers: {
-                        'Authorization': `Bearer ${GITHUB_TOKEN}`,
-                        'Accept': 'application/vnd.github.v3+json',
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        message: `Delete ${file.name}`,
-                        sha: file.sha,
-                        branch: GITHUB_BRANCH,
-                    }),
-                }
-            );
-
-            if (deleteResponse.ok) {
-                deleted++;
-            } else {
-                errors.push(`${file.name}: ${deleteResponse.status}`);
+    try {
+        // Step 1: Get the latest commit SHA
+        const refResponse = await fetch(
+            `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/git/ref/heads/${GITHUB_BRANCH}`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${GITHUB_TOKEN}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                },
             }
-        } catch (error) {
-            errors.push(`${file.name}: ${error}`);
+        );
+
+        if (!refResponse.ok) {
+            throw new Error('Failed to get branch ref');
         }
+
+        const refData = await refResponse.json();
+        const latestCommitSha = refData.object.sha;
+
+        // Step 2: Get the tree SHA from the latest commit
+        const commitResponse = await fetch(
+            `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/git/commits/${latestCommitSha}`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${GITHUB_TOKEN}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                },
+            }
+        );
+
+        if (!commitResponse.ok) {
+            throw new Error('Failed to get commit');
+        }
+
+        const commitData = await commitResponse.json();
+        const baseTreeSha = commitData.tree.sha;
+
+        // Step 3: Create a new tree with the files marked for deletion (sha: null)
+        const treeEntries = webpFiles.map((f: { path: string }) => ({
+            path: f.path,
+            mode: '100644' as const,
+            type: 'blob' as const,
+            sha: null, // null sha = delete the file
+        }));
+
+        const newTreeResponse = await fetch(
+            `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/git/trees`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${GITHUB_TOKEN}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    base_tree: baseTreeSha,
+                    tree: treeEntries,
+                }),
+            }
+        );
+
+        if (!newTreeResponse.ok) {
+            const error = await newTreeResponse.text();
+            throw new Error(`Failed to create tree: ${error}`);
+        }
+
+        const newTreeData = await newTreeResponse.json();
+
+        // Step 4: Create a new commit
+        const newCommitResponse = await fetch(
+            `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/git/commits`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${GITHUB_TOKEN}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    message: `Delete ${webpFiles.length} images from ${category}`,
+                    tree: newTreeData.sha,
+                    parents: [latestCommitSha],
+                }),
+            }
+        );
+
+        if (!newCommitResponse.ok) {
+            throw new Error('Failed to create commit');
+        }
+
+        const newCommitData = await newCommitResponse.json();
+
+        // Step 5: Update the branch reference
+        const updateRefResponse = await fetch(
+            `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/git/refs/heads/${GITHUB_BRANCH}`,
+            {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${GITHUB_TOKEN}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    sha: newCommitData.sha,
+                    force: false,
+                }),
+            }
+        );
+
+        if (!updateRefResponse.ok) {
+            throw new Error('Failed to update branch ref');
+        }
+
+        // Reset github_synced in database for this category
+        const supabase = createServerClient();
+        const categoryPatterns: Record<string, string> = {
+            'h': '%/h/%',
+            'v': '%/v/%',
+            'r18/h': '%R18/h/%',
+            'r18/v': '%R18/v/%',
+            'pid/h': '%pid/h/%',
+            'pid/v': '%pid/v/%',
+            'tag/h': '%tag/h/%',
+            'tag/v': '%tag/v/%',
+        };
+
+        const pattern = categoryPatterns[category];
+        if (pattern) {
+            await supabase
+                .from('pixiv_images')
+                .update({ github_synced: null })
+                .ilike('r2_url', pattern);
+        }
+
+        return NextResponse.json({
+            dryRun: false,
+            category,
+            deleted: webpFiles.length,
+            commits: 1, // Single commit!
+            dbReset: !!pattern,
+        });
+    } catch (error) {
+        return NextResponse.json({
+            error: error instanceof Error ? error.message : 'Failed to delete',
+        }, { status: 500 });
     }
-
-    // Also clear github_synced in database for this category
-    const supabase = createServerClient();
-    const categoryPatterns: Record<string, string> = {
-        'h': '%/h/%',
-        'v': '%/v/%',
-        'r18/h': '%R18/h/%',
-        'r18/v': '%R18/v/%',
-        'pid/h': '%pid/h/%',
-        'pid/v': '%pid/v/%',
-        'tag/h': '%tag/h/%',
-        'tag/v': '%tag/v/%',
-    };
-
-    const pattern = categoryPatterns[category];
-    if (pattern) {
-        await supabase
-            .from('pixiv_images')
-            .update({ github_synced: null })
-            .ilike('r2_url', pattern);
-    }
-
-    return NextResponse.json({
-        dryRun: false,
-        category,
-        deleted,
-        dbReset: !!pattern,
-        errors: errors.length > 0 ? errors : undefined,
-    });
 }
+

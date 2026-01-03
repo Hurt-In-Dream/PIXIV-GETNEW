@@ -102,6 +102,53 @@ export async function DELETE(request: NextRequest) {
 
         const supabase = createServerClient();
 
+        // First get the image to get the R2 URL
+        const { data: image } = await supabase
+            .from('pixiv_images')
+            .select('r2_url')
+            .eq('id', id)
+            .single();
+
+        // Try to delete from R2 if URL exists
+        if (image?.r2_url) {
+            try {
+                // Extract the key from R2 URL
+                const r2Url = new URL(image.r2_url);
+                const key = r2Url.pathname.slice(1); // Remove leading /
+
+                // Delete from R2 using S3 API
+                const r2Endpoint = process.env.R2_ENDPOINT;
+                const r2AccessKey = process.env.R2_ACCESS_KEY_ID;
+                const r2SecretKey = process.env.R2_SECRET_ACCESS_KEY;
+                const r2Bucket = process.env.R2_BUCKET_NAME;
+
+                if (r2Endpoint && r2AccessKey && r2SecretKey && r2Bucket) {
+                    // Import S3 client dynamically
+                    const { S3Client, DeleteObjectCommand } = await import('@aws-sdk/client-s3');
+
+                    const s3Client = new S3Client({
+                        region: 'auto',
+                        endpoint: r2Endpoint,
+                        credentials: {
+                            accessKeyId: r2AccessKey,
+                            secretAccessKey: r2SecretKey,
+                        },
+                    });
+
+                    await s3Client.send(new DeleteObjectCommand({
+                        Bucket: r2Bucket,
+                        Key: key,
+                    }));
+
+                    console.log(`Deleted from R2: ${key}`);
+                }
+            } catch (r2Error) {
+                // Log but don't fail the whole operation
+                console.error('Failed to delete from R2:', r2Error);
+            }
+        }
+
+        // Delete from database
         const { error } = await supabase
             .from('pixiv_images')
             .delete()
@@ -114,7 +161,7 @@ export async function DELETE(request: NextRequest) {
             );
         }
 
-        return NextResponse.json({ success: true });
+        return NextResponse.json({ success: true, r2Deleted: !!image?.r2_url });
     } catch (error) {
         console.error('Delete image error:', error);
         return NextResponse.json(

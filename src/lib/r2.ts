@@ -101,13 +101,20 @@ export function generateR2Key(
         String(date.getDate()).padStart(2, '0'),
     ].join('');
 
-    // Build path: [R18/][tag/|pid/]h/ or [R18/][tag/|pid/]v/
+    // Build path based on R18 status and source
+    // R18 images go directly to R18/ folder (regardless of source)
+    // Non-R18 images: ranking -> h/v/, tag -> tag/h/v/, pid -> pid/h/v/
     let prefix = '';
-    if (isR18) prefix += 'R18/';
-    if (source === 'tag') prefix += 'tag/';
-    if (source === 'pid') prefix += 'pid/';
+    if (isR18) {
+        // R18 图片统一归类到 R18 文件夹，不区分来源
+        prefix = 'R18/';
+    } else {
+        // 非 R18 图片按来源分类
+        if (source === 'tag') prefix = 'tag/';
+        if (source === 'pid') prefix = 'pid/';
+    }
 
-    // Format: [R18/][tag/|pid/]h/20260101_123456789.jpg
+    // Format: [R18/|tag/|pid/]h/20260101_123456789.jpg
     return `${prefix}${orientation}/${dateStr}_${pid}.${extension}`;
 }
 

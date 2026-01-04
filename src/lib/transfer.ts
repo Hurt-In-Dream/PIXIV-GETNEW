@@ -576,7 +576,7 @@ export async function crawlByTag(
 
 /**
  * Crawl and transfer related works for a PID
- * Filters by popularity score to avoid low-quality images
+ * Uses two-pass filtering: first with popularity, then without if not enough results
  * @param pid - Original Pixiv illustration ID
  * @param limit - Number of related works to fetch
  * @param source - 'ranking', 'tag' or 'pid' to determine storage folder
@@ -591,8 +591,8 @@ export async function crawlRelated(
     // First process the original PID
     const originalResult = await processIllustration(pid, source);
 
-    // Then get related works (fetch more to filter)
-    const fetchLimit = limit * 3; // Fetch 3x to have room for filtering
+    // Fetch a lot more to have room for filtering (max 100)
+    const fetchLimit = Math.min(100, limit * 10);
     const result = await getRelatedWorks(pid, fetchLimit);
 
     if (!result.success) {
@@ -616,16 +616,15 @@ export async function crawlRelated(
     const popularitySettings = await getPopularityFilterSettings();
     const usePopularityFilter = popularitySettings.pid;
 
-    // Filter related works by popularity and other criteria
+    // Two-pass filtering: first with all filters, then relax popularity if not enough
     const filteredIllusts: PixivIllust[] = [];
+    const backupIllusts: PixivIllust[] = []; // Images that passed everything except popularity
     let skippedByPopularity = 0;
     let skippedByTag = 0;
     let skippedByRatio = 0;
     let skippedByDuplicate = 0;
 
     for (const illust of result.illustrations) {
-        if (filteredIllusts.length >= limit) break;
-
         // Skip by tags
         if (await shouldSkipByTags(illust.tags, skipTags)) {
             skippedByTag++;
@@ -663,17 +662,42 @@ export async function crawlRelated(
 
             if (popularityScore < MIN_POPULARITY_SCORE) {
                 skippedByPopularity++;
+                // Save to backup for potential use later
+                backupIllusts.push(illust);
                 continue;
             }
         }
 
         filteredIllusts.push(illust);
+
+        // Stop if we have enough
+        if (filteredIllusts.length >= limit) break;
+    }
+
+    // If not enough results, fill from backup (images that failed only popularity check)
+    if (filteredIllusts.length < limit && backupIllusts.length > 0) {
+        const needed = limit - filteredIllusts.length;
+        const fromBackup = backupIllusts.slice(0, needed);
+        filteredIllusts.push(...fromBackup);
+
+        await logInfo(
+            `热度筛选放宽`,
+            `从备选中补充 ${fromBackup.length} 张 (原热度筛选跳过但其他条件通过的图片)`
+        );
     }
 
     await logInfo(
         `相关推荐筛选完成`,
         `通过: ${filteredIllusts.length}张 | 跳过: 热度${skippedByPopularity}, 标签${skippedByTag}, 比例${skippedByRatio}, 重复${skippedByDuplicate}`
     );
+
+    // If still no results, log warning
+    if (filteredIllusts.length === 0) {
+        await logWarning(
+            `相关推荐筛选后无结果`,
+            `PID ${pid} 的 ${result.illustrations.length} 张相关推荐全部被筛选掉。请检查筛选条件或尝试其他 PID。`
+        );
+    }
 
     const batchResult = await processBatch(filteredIllusts, source);
 
@@ -690,4 +714,5 @@ export async function crawlRelated(
 
     return batchResult;
 }
+
 

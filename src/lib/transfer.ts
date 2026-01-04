@@ -273,105 +273,125 @@ async function shouldSkipByTags(illustTags: string[], skipTags?: string[]): Prom
  * Crawl and transfer images from ranking
  * Balances horizontal and vertical images at 1.5:1 ratio (more horizontal for wide screens)
  * Filters out images with no/simple backgrounds
+ * Continues fetching from more pages until target count is reached
+ * Checks database duplicates during filtering to ensure NEW images
  */
 export async function crawlRanking(
     mode: string = 'daily',
     limit: number = BATCH_SIZE,
     balanceOrientation: boolean = true
 ): Promise<TransferResult> {
-    await logInfo(`开始抓取排行榜`, `模式: ${mode}, 数量: ${limit}`);
-    const result = await getRanking(mode, 1);
-
-    if (!result.success) {
-        return {
-            success: false,
-            progress: { total: 0, processed: 0, success: 0, failed: 0, skipped: 0 },
-            error: result.error,
-        };
-    }
+    await logInfo(`开始抓取排行榜`, `模式: ${mode}, 目标新增: ${limit}张`);
 
     // Pre-load skip tags for efficiency
     const skipTags = await getSkipTags();
 
-    let selectedIllusts: typeof result.illustrations = [];
+    // Target counts
+    const horizontalTarget = balanceOrientation ? Math.ceil(limit * 0.6) : limit; // 60% horizontal
+    const verticalTarget = balanceOrientation ? Math.ceil(limit * 0.4) : 0;   // 40% vertical
 
-    if (balanceOrientation) {
-        // Target ratio: 1.5:1 (horizontal:vertical)
-        // For limit 30: 18 horizontal, 12 vertical
-        const horizontalTarget = Math.ceil(limit * 0.6); // 60% horizontal
-        const verticalTarget = Math.ceil(limit * 0.4);   // 40% vertical
-        const horizontalIllusts: typeof result.illustrations = [];
-        const verticalIllusts: typeof result.illustrations = [];
+    const horizontalIllusts: PixivIllust[] = [];
+    const verticalIllusts: PixivIllust[] = [];
+    const seenPids = new Set<string>();
 
-        // Separate images by orientation, filtering out bad backgrounds
-        // Don't stop early - collect as many as possible
+    let pageNum = 1;
+    const maxPages = 10; // Prevent infinite loop
+    let skippedByTag = 0;
+    let skippedByResolution = 0;
+    let skippedByDuplicate = 0;
+
+    // Keep fetching until we have enough images or run out of pages
+    while (pageNum <= maxPages) {
+        const result = await getRanking(mode, pageNum);
+
+        if (!result.success || result.illustrations.length === 0) {
+            if (pageNum === 1) {
+                return {
+                    success: false,
+                    progress: { total: 0, processed: 0, success: 0, failed: 0, skipped: 0 },
+                    error: result.error || 'No illustrations found',
+                };
+            }
+            break; // No more pages available
+        }
+
+        // Process each illustration
         for (const illust of result.illustrations) {
+            // Skip duplicates within this crawl session
+            if (seenPids.has(illust.id)) continue;
+            seenPids.add(illust.id);
+
             // Skip images with unsuitable tags
             if (await shouldSkipByTags(illust.tags, skipTags)) {
+                skippedByTag++;
                 continue;
             }
 
-            if (!illust.width || !illust.height) {
-                // Unknown dimensions - skip to ensure quality
-                continue;
-            }
+            if (!illust.width || !illust.height) continue;
 
             // Resolution check for high-quality wallpaper
             if (illust.width < MIN_WIDTH && illust.height < MIN_HEIGHT) {
+                skippedByResolution++;
+                continue;
+            }
+
+            // Check if already exists in database (NEW: filter duplicates early)
+            const pid = parseInt(illust.id);
+            if (await checkDuplicate(pid)) {
+                skippedByDuplicate++;
                 continue;
             }
 
             const ratio = illust.width / illust.height;
 
-            if (ratio > 1.0) {
-                // Horizontal (landscape)
-                if (horizontalIllusts.length < horizontalTarget) {
+            if (balanceOrientation) {
+                if (ratio > 1.0 && horizontalIllusts.length < horizontalTarget) {
                     horizontalIllusts.push(illust);
-                }
-            } else {
-                // Vertical (portrait) or square
-                if (verticalIllusts.length < verticalTarget) {
+                } else if (ratio <= 1.0 && verticalIllusts.length < verticalTarget) {
                     verticalIllusts.push(illust);
                 }
-            }
-
-            // Stop only if we have enough of BOTH types
-            if (horizontalIllusts.length >= horizontalTarget && verticalIllusts.length >= verticalTarget) {
-                break;
-            }
-        }
-
-        // If we didn't get enough of one type, fill with whatever is available
-        // Prioritize horizontal since that's the user's preference
-        if (horizontalIllusts.length < horizontalTarget) {
-            // Try to fill remaining horizontal slots from remaining illustrations
-            for (const illust of result.illustrations) {
-                if (await shouldSkipByTags(illust.tags, skipTags)) continue;
-                if (!illust.width || !illust.height) continue;
-                const ratio = illust.width / illust.height;
-                if (ratio > 1.0 && !horizontalIllusts.find(i => i.id === illust.id)) {
+            } else {
+                // No balancing needed
+                if (horizontalIllusts.length < limit) {
                     horizontalIllusts.push(illust);
-                    if (horizontalIllusts.length >= horizontalTarget) break;
                 }
             }
-        }
 
-        selectedIllusts = [...horizontalIllusts, ...verticalIllusts];
-        await logInfo(
-            `平衡筛选完成`,
-            `横屏: ${horizontalIllusts.length}张, 竖屏: ${verticalIllusts.length}张 (目标比例 1.5:1)`
-        );
-    } else {
-        // No balancing, just filter out bad backgrounds
-        const filtered: typeof result.illustrations = [];
-        for (const illust of result.illustrations) {
-            if (!(await shouldSkipByTags(illust.tags, skipTags))) {
-                filtered.push(illust);
-                if (filtered.length >= limit) break;
+            // Check if we have enough
+            if (balanceOrientation) {
+                if (horizontalIllusts.length >= horizontalTarget && verticalIllusts.length >= verticalTarget) {
+                    break;
+                }
+            } else {
+                if (horizontalIllusts.length >= limit) break;
             }
         }
-        selectedIllusts = filtered;
+
+        // Check if we have enough images
+        const hasEnough = balanceOrientation
+            ? (horizontalIllusts.length >= horizontalTarget && verticalIllusts.length >= verticalTarget)
+            : (horizontalIllusts.length >= limit);
+
+        if (hasEnough) {
+            break;
+        }
+
+        // Log progress and continue to next page
+        await logInfo(
+            `第${pageNum}页筛选完成，继续获取更多`,
+            `当前: 横屏${horizontalIllusts.length}/${horizontalTarget}, 竖屏${verticalIllusts.length}/${verticalTarget}, 跳过(标签${skippedByTag}/分辨率${skippedByResolution}/重复${skippedByDuplicate})`
+        );
+
+        pageNum++;
+        await delay(500); // Rate limiting between pages
     }
+
+    const selectedIllusts = [...horizontalIllusts, ...verticalIllusts];
+
+    await logInfo(
+        `筛选完成 (共翻${pageNum}页)`,
+        `将新增: 横屏${horizontalIllusts.length}张, 竖屏${verticalIllusts.length}张 | 跳过: 标签${skippedByTag}, 分辨率${skippedByResolution}, 已存在${skippedByDuplicate}`
+    );
 
     return processBatch(selectedIllusts);
 }
@@ -380,69 +400,114 @@ export async function crawlRanking(
  * Crawl and transfer images by tag
  * Also filters out images with no/simple backgrounds
  * Uses 1.5:1 horizontal:vertical ratio
+ * Continues fetching from more pages until target count is reached
+ * Checks database duplicates during filtering to ensure NEW images
  */
 export async function crawlByTag(
     tag: string,
     limit: number = BATCH_SIZE,
     balanceOrientation: boolean = true
 ): Promise<TransferResult> {
-    await logInfo(`开始按标签抓取`, `标签: ${tag}, 数量: ${limit}`);
-    const result = await searchByTag(tag, 1);
-
-    if (!result.success) {
-        return {
-            success: false,
-            progress: { total: 0, processed: 0, success: 0, failed: 0, skipped: 0 },
-            error: result.error,
-        };
-    }
+    await logInfo(`开始按标签抓取`, `标签: ${tag}, 目标新增: ${limit}张`);
 
     // Pre-load skip tags for efficiency
     const skipTags = await getSkipTags();
 
-    // Filter out bad backgrounds and balance orientation
-    let selectedIllusts: typeof result.illustrations = [];
+    // Target counts
+    const horizontalTarget = balanceOrientation ? Math.ceil(limit * 0.6) : limit;
+    const verticalTarget = balanceOrientation ? Math.ceil(limit * 0.4) : 0;
 
-    if (balanceOrientation) {
-        // Target ratio: 1.5:1 (horizontal:vertical)
-        const horizontalTarget = Math.ceil(limit * 0.6); // 60% horizontal
-        const verticalTarget = Math.ceil(limit * 0.4);   // 40% vertical
-        const horizontalIllusts: typeof result.illustrations = [];
-        const verticalIllusts: typeof result.illustrations = [];
+    const horizontalIllusts: PixivIllust[] = [];
+    const verticalIllusts: PixivIllust[] = [];
+    const seenPids = new Set<string>();
+
+    let pageNum = 1;
+    const maxPages = 10;
+    let skippedByTag = 0;
+    let skippedByResolution = 0;
+    let skippedByDuplicate = 0;
+
+    // Keep fetching until we have enough images or run out of pages
+    while (pageNum <= maxPages) {
+        const result = await searchByTag(tag, pageNum);
+
+        if (!result.success || result.illustrations.length === 0) {
+            if (pageNum === 1) {
+                return {
+                    success: false,
+                    progress: { total: 0, processed: 0, success: 0, failed: 0, skipped: 0 },
+                    error: result.error || 'No illustrations found',
+                };
+            }
+            break;
+        }
 
         for (const illust of result.illustrations) {
-            if (await shouldSkipByTags(illust.tags, skipTags)) continue;
+            if (seenPids.has(illust.id)) continue;
+            seenPids.add(illust.id);
+
+            if (await shouldSkipByTags(illust.tags, skipTags)) {
+                skippedByTag++;
+                continue;
+            }
+
             if (!illust.width || !illust.height) continue;
 
-            // Resolution check for high-quality wallpaper
             if (illust.width < MIN_WIDTH && illust.height < MIN_HEIGHT) {
+                skippedByResolution++;
+                continue;
+            }
+
+            // Check if already exists in database (NEW: filter duplicates early)
+            const pid = parseInt(illust.id);
+            if (await checkDuplicate(pid)) {
+                skippedByDuplicate++;
                 continue;
             }
 
             const ratio = illust.width / illust.height;
 
-            if (ratio > 1.0 && horizontalIllusts.length < horizontalTarget) {
-                horizontalIllusts.push(illust);
-            } else if (ratio <= 1.0 && verticalIllusts.length < verticalTarget) {
-                verticalIllusts.push(illust);
+            if (balanceOrientation) {
+                if (ratio > 1.0 && horizontalIllusts.length < horizontalTarget) {
+                    horizontalIllusts.push(illust);
+                } else if (ratio <= 1.0 && verticalIllusts.length < verticalTarget) {
+                    verticalIllusts.push(illust);
+                }
+            } else {
+                if (horizontalIllusts.length < limit) {
+                    horizontalIllusts.push(illust);
+                }
             }
 
-            if (horizontalIllusts.length >= horizontalTarget && verticalIllusts.length >= verticalTarget) break;
+            const hasEnough = balanceOrientation
+                ? (horizontalIllusts.length >= horizontalTarget && verticalIllusts.length >= verticalTarget)
+                : (horizontalIllusts.length >= limit);
+
+            if (hasEnough) break;
         }
 
-        selectedIllusts = [...horizontalIllusts, ...verticalIllusts];
-    } else {
-        const filtered: typeof result.illustrations = [];
-        for (const illust of result.illustrations) {
-            if (!(await shouldSkipByTags(illust.tags, skipTags))) {
-                filtered.push(illust);
-                if (filtered.length >= limit) break;
-            }
-        }
-        selectedIllusts = filtered;
+        const hasEnough = balanceOrientation
+            ? (horizontalIllusts.length >= horizontalTarget && verticalIllusts.length >= verticalTarget)
+            : (horizontalIllusts.length >= limit);
+
+        if (hasEnough) break;
+
+        await logInfo(
+            `[标签:${tag}] 第${pageNum}页筛选完成，继续获取更多`,
+            `当前: 横屏${horizontalIllusts.length}/${horizontalTarget}, 竖屏${verticalIllusts.length}/${verticalTarget}, 跳过(标签${skippedByTag}/分辨率${skippedByResolution}/重复${skippedByDuplicate})`
+        );
+
+        pageNum++;
+        await delay(500);
     }
 
-    // Use 'tag' source to store in separate folder
+    const selectedIllusts = [...horizontalIllusts, ...verticalIllusts];
+
+    await logInfo(
+        `[标签:${tag}] 筛选完成 (共翻${pageNum}页)`,
+        `将新增: 横屏${horizontalIllusts.length}张, 竖屏${verticalIllusts.length}张 | 跳过: 标签${skippedByTag}, 分辨率${skippedByResolution}, 已存在${skippedByDuplicate}`
+    );
+
     return processBatch(selectedIllusts, 'tag');
 }
 

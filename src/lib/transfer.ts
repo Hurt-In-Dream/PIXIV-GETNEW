@@ -39,6 +39,11 @@ const DELAY_BETWEEN_DOWNLOADS = 500; // ms
 const MIN_WIDTH = 1200;
 const MIN_HEIGHT = 1200;
 
+// Skip square or near-square images (not suitable for wallpaper)
+// Ratio between 0.85 and 1.18 is considered "square-ish"
+const SQUARE_RATIO_MIN = 0.85;  // 1:1.18 (slightly portrait)
+const SQUARE_RATIO_MAX = 1.18;  // 1.18:1 (slightly landscape)
+
 /**
  * Check if a PID already exists in database
  */
@@ -344,10 +349,16 @@ export async function crawlRanking(
 
             const ratio = illust.width / illust.height;
 
+            // Skip square or near-square images (not suitable for wallpaper)
+            if (ratio >= SQUARE_RATIO_MIN && ratio <= SQUARE_RATIO_MAX) {
+                skippedByResolution++; // Count as resolution skip
+                continue;
+            }
+
             if (balanceOrientation) {
-                if (ratio > 1.0 && horizontalIllusts.length < horizontalTarget) {
+                if (ratio > SQUARE_RATIO_MAX && horizontalIllusts.length < horizontalTarget) {
                     horizontalIllusts.push(illust);
-                } else if (ratio <= 1.0 && verticalIllusts.length < verticalTarget) {
+                } else if (ratio < SQUARE_RATIO_MIN && verticalIllusts.length < verticalTarget) {
                     verticalIllusts.push(illust);
                 }
             } else {
@@ -467,10 +478,16 @@ export async function crawlByTag(
 
             const ratio = illust.width / illust.height;
 
+            // Skip square or near-square images (not suitable for wallpaper)
+            if (ratio >= SQUARE_RATIO_MIN && ratio <= SQUARE_RATIO_MAX) {
+                skippedByResolution++;
+                continue;
+            }
+
             if (balanceOrientation) {
-                if (ratio > 1.0 && horizontalIllusts.length < horizontalTarget) {
+                if (ratio > SQUARE_RATIO_MAX && horizontalIllusts.length < horizontalTarget) {
                     horizontalIllusts.push(illust);
-                } else if (ratio <= 1.0 && verticalIllusts.length < verticalTarget) {
+                } else if (ratio < SQUARE_RATIO_MIN && verticalIllusts.length < verticalTarget) {
                     verticalIllusts.push(illust);
                 }
             } else {

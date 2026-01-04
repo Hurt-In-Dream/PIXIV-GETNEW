@@ -44,6 +44,52 @@ const MIN_HEIGHT = 1200;
 const SQUARE_RATIO_MIN = 0.85;  // 1:1.18 (slightly portrait)
 const SQUARE_RATIO_MAX = 1.18;  // 1.18:1 (slightly landscape)
 
+// Popularity filtering for related works (PID crawling)
+// 热度 = (点赞数 + 收藏数 × 2) / max(浏览量, 5000)
+// Higher value = higher quality engagement
+const MIN_POPULARITY_SCORE = 0.03;  // Minimum score to pass filter
+
+/**
+ * Calculate popularity score for an illustration
+ * Formula: (likes + bookmarks * 2) / max(views, 5000)
+ * Higher score = better engagement ratio
+ */
+export function calculatePopularity(
+    likeCount: number = 0,
+    bookmarkCount: number = 0,
+    viewCount: number = 0
+): number {
+    const effectiveViews = Math.max(viewCount, 5000); // Avoid division issues
+    return (likeCount + bookmarkCount * 2) / effectiveViews;
+}
+
+/**
+ * Get popularity filter settings from database
+ */
+export async function getPopularityFilterSettings(): Promise<{
+    auto: boolean;
+    manual: boolean;
+    pid: boolean;
+}> {
+    try {
+        const supabase = createServerClient();
+        const { data } = await supabase
+            .from('crawler_settings')
+            .select('popularity_filter_auto, popularity_filter_manual, popularity_filter_pid')
+            .limit(1)
+            .single();
+
+        return {
+            auto: data?.popularity_filter_auto ?? false,
+            manual: data?.popularity_filter_manual ?? false,
+            pid: data?.popularity_filter_pid ?? true,
+        };
+    } catch {
+        // Default: only enable for PID
+        return { auto: false, manual: false, pid: true };
+    }
+}
+
 /**
  * Check if a PID already exists in database
  */
@@ -530,6 +576,7 @@ export async function crawlByTag(
 
 /**
  * Crawl and transfer related works for a PID
+ * Filters by popularity score to avoid low-quality images
  * @param pid - Original Pixiv illustration ID
  * @param limit - Number of related works to fetch
  * @param source - 'ranking', 'tag' or 'pid' to determine storage folder
@@ -539,11 +586,14 @@ export async function crawlRelated(
     limit: number = BATCH_SIZE,
     source: ImageSource = 'pid'
 ): Promise<TransferResult> {
+    await logInfo(`开始抓取相关推荐`, `PID: ${pid}, 目标: ${limit}张`);
+
     // First process the original PID
     const originalResult = await processIllustration(pid, source);
 
-    // Then get related works
-    const result = await getRelatedWorks(pid, limit);
+    // Then get related works (fetch more to filter)
+    const fetchLimit = limit * 3; // Fetch 3x to have room for filtering
+    const result = await getRelatedWorks(pid, fetchLimit);
 
     if (!result.success) {
         return {
@@ -559,8 +609,73 @@ export async function crawlRelated(
         };
     }
 
-    const batch = result.illustrations.slice(0, limit);
-    const batchResult = await processBatch(batch, source);
+    // Pre-load skip tags
+    const skipTags = await getSkipTags();
+
+    // Get popularity filter settings
+    const popularitySettings = await getPopularityFilterSettings();
+    const usePopularityFilter = popularitySettings.pid;
+
+    // Filter related works by popularity and other criteria
+    const filteredIllusts: PixivIllust[] = [];
+    let skippedByPopularity = 0;
+    let skippedByTag = 0;
+    let skippedByRatio = 0;
+    let skippedByDuplicate = 0;
+
+    for (const illust of result.illustrations) {
+        if (filteredIllusts.length >= limit) break;
+
+        // Skip by tags
+        if (await shouldSkipByTags(illust.tags, skipTags)) {
+            skippedByTag++;
+            continue;
+        }
+
+        // Skip by ratio (square-ish images)
+        if (illust.width && illust.height) {
+            const ratio = illust.width / illust.height;
+            if (ratio >= SQUARE_RATIO_MIN && ratio <= SQUARE_RATIO_MAX) {
+                skippedByRatio++;
+                continue;
+            }
+            // Also skip low resolution
+            if (illust.width < MIN_WIDTH && illust.height < MIN_HEIGHT) {
+                skippedByRatio++;
+                continue;
+            }
+        }
+
+        // Check duplicate
+        const illustPid = parseInt(illust.id);
+        if (await checkDuplicate(illustPid)) {
+            skippedByDuplicate++;
+            continue;
+        }
+
+        // Calculate and check popularity score (only if enabled)
+        if (usePopularityFilter) {
+            const popularityScore = calculatePopularity(
+                illust.likeCount,
+                illust.bookmarkCount,
+                illust.viewCount
+            );
+
+            if (popularityScore < MIN_POPULARITY_SCORE) {
+                skippedByPopularity++;
+                continue;
+            }
+        }
+
+        filteredIllusts.push(illust);
+    }
+
+    await logInfo(
+        `相关推荐筛选完成`,
+        `通过: ${filteredIllusts.length}张 | 跳过: 热度${skippedByPopularity}, 标签${skippedByTag}, 比例${skippedByRatio}, 重复${skippedByDuplicate}`
+    );
+
+    const batchResult = await processBatch(filteredIllusts, source);
 
     // Combine results
     batchResult.progress.total += 1;
@@ -575,3 +690,4 @@ export async function crawlRelated(
 
     return batchResult;
 }
+

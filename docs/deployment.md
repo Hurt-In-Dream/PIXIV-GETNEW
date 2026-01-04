@@ -96,6 +96,11 @@ CREATE TABLE IF NOT EXISTS skip_tags (
   category TEXT DEFAULT 'other',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- 添加热度筛选设置 (v1.4+)
+ALTER TABLE crawler_settings ADD COLUMN IF NOT EXISTS popularity_filter_auto BOOLEAN DEFAULT FALSE;
+ALTER TABLE crawler_settings ADD COLUMN IF NOT EXISTS popularity_filter_manual BOOLEAN DEFAULT FALSE;
+ALTER TABLE crawler_settings ADD COLUMN IF NOT EXISTS popularity_filter_pid BOOLEAN DEFAULT TRUE;
 ```
 
 ## 6. 验证部署

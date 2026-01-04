@@ -27,6 +27,10 @@ export interface PixivIllust {
     width: number;
     height: number;
     createDate: string;
+    // Popularity metrics for quality filtering
+    bookmarkCount?: number;  // 收藏数
+    likeCount?: number;      // 点赞数
+    viewCount?: number;      // 浏览量
 }
 
 export interface PixivIllustDetail {
@@ -259,6 +263,10 @@ export async function getRelatedWorks(pid: number | string, limit: number = 20):
             width: Number(item.width) || 0,
             height: Number(item.height) || 0,
             createDate: String(item.createDate || ''),
+            // Popularity metrics
+            bookmarkCount: Number(item.bookmarkCount) || 0,
+            likeCount: Number(item.likeCount) || 0,
+            viewCount: Number(item.viewCount) || 0,
         }));
 
         return { success: true, illustrations };

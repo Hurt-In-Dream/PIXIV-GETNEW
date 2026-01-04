@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Settings, Save, Loader2, Lock, Tag, TrendingUp } from 'lucide-react';
+import { Settings, Save, Loader2, Lock, Tag, TrendingUp, Flame } from 'lucide-react';
 
 interface SettingsPanelProps {
     initialSettings?: {
@@ -12,6 +12,9 @@ interface SettingsPanelProps {
         r18_crawl_limit: number;
         tag_search_enabled?: boolean;
         tag_search_limit?: number;
+        popularity_filter_auto?: boolean;
+        popularity_filter_manual?: boolean;
+        popularity_filter_pid?: boolean;
     };
     onSave?: () => void;
 }
@@ -37,6 +40,16 @@ export default function SettingsPanel({ initialSettings, onSave }: SettingsPanel
     );
     const [tagSearchLimit, setTagSearchLimit] = useState(
         initialSettings?.tag_search_limit || 10
+    );
+    // Popularity filter settings
+    const [popularityFilterAuto, setPopularityFilterAuto] = useState(
+        initialSettings?.popularity_filter_auto || false
+    );
+    const [popularityFilterManual, setPopularityFilterManual] = useState(
+        initialSettings?.popularity_filter_manual || false
+    );
+    const [popularityFilterPid, setPopularityFilterPid] = useState(
+        initialSettings?.popularity_filter_pid ?? true
     );
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState('');
@@ -83,6 +96,9 @@ export default function SettingsPanel({ initialSettings, onSave }: SettingsPanel
                     r18_crawl_limit: r18CrawlLimit,
                     tag_search_enabled: tagSearchEnabled,
                     tag_search_limit: tagSearchLimit,
+                    popularity_filter_auto: popularityFilterAuto,
+                    popularity_filter_manual: popularityFilterManual,
+                    popularity_filter_pid: popularityFilterPid,
                 }),
             });
 
@@ -275,6 +291,51 @@ export default function SettingsPanel({ initialSettings, onSave }: SettingsPanel
                             </div>
                         </div>
                     )}
+
+                    {/* Divider */}
+                    <div className="border-t border-gray-200 dark:border-gray-700"></div>
+
+                    {/* Popularity Filter Settings */}
+                    <div className="p-3 rounded-xl bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800">
+                        <div className="flex items-center gap-2 mb-3">
+                            <Flame className="w-4 h-4 text-orange-500" />
+                            <span className="text-sm font-medium text-orange-700 dark:text-orange-300">
+                                热度筛选
+                            </span>
+                        </div>
+                        <p className="text-xs text-orange-600 dark:text-orange-400 mb-3">
+                            跳过低热度图片 (热度 = (点赞 + 收藏×2) / 浏览量)
+                        </p>
+                        <div className="space-y-2">
+                            <label className="flex items-center gap-3 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={popularityFilterAuto}
+                                    onChange={(e) => setPopularityFilterAuto(e.target.checked)}
+                                    className="w-4 h-4 rounded border-orange-300 text-orange-500 focus:ring-orange-500"
+                                />
+                                <span className="text-sm text-gray-700 dark:text-gray-300">自动抓取 (Cron)</span>
+                            </label>
+                            <label className="flex items-center gap-3 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={popularityFilterManual}
+                                    onChange={(e) => setPopularityFilterManual(e.target.checked)}
+                                    className="w-4 h-4 rounded border-orange-300 text-orange-500 focus:ring-orange-500"
+                                />
+                                <span className="text-sm text-gray-700 dark:text-gray-300">手动抓取</span>
+                            </label>
+                            <label className="flex items-center gap-3 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={popularityFilterPid}
+                                    onChange={(e) => setPopularityFilterPid(e.target.checked)}
+                                    className="w-4 h-4 rounded border-orange-300 text-orange-500 focus:ring-orange-500"
+                                />
+                                <span className="text-sm text-gray-700 dark:text-gray-300">PID 相关推荐</span>
+                            </label>
+                        </div>
+                    </div>
 
                     {/* Save Button */}
                     <button

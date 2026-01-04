@@ -32,6 +32,10 @@ export async function GET() {
             r18_crawl_limit: 10,
             tag_search_enabled: false,
             tag_search_limit: 10,
+            // Popularity filter settings (which modes should use popularity filtering)
+            popularity_filter_auto: false,    // 自动抓取
+            popularity_filter_manual: false,  // 手动抓取
+            popularity_filter_pid: true,      // PID 相关推荐 (default on)
         };
 
         return NextResponse.json(settings);
@@ -55,6 +59,9 @@ export async function POST(request: NextRequest) {
             r18_crawl_limit,
             tag_search_enabled,
             tag_search_limit,
+            popularity_filter_auto,
+            popularity_filter_manual,
+            popularity_filter_pid,
         } = body;
 
         const supabase = createServerClient();
@@ -74,6 +81,9 @@ export async function POST(request: NextRequest) {
             r18_crawl_limit: r18_crawl_limit ?? 10,
             tag_search_enabled: tag_search_enabled ?? false,
             tag_search_limit: tag_search_limit ?? 10,
+            popularity_filter_auto: popularity_filter_auto ?? false,
+            popularity_filter_manual: popularity_filter_manual ?? false,
+            popularity_filter_pid: popularity_filter_pid ?? true,
             updated_at: new Date().toISOString(),
         };
 

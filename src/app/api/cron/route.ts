@@ -6,6 +6,7 @@
  * - R18 ranking crawl (if enabled)
  * - Tag search (if enabled)
  * - Smart crawl based on favorite tags (weighted selection)
+ * - WeChat Work webhook notification
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -13,6 +14,7 @@ import { createServerClient } from '@/lib/supabase';
 import { crawlRanking, crawlByTag } from '@/lib/transfer';
 import { isAuthenticated } from '@/lib/pixiv';
 import { logActivity } from '@/lib/logger';
+import { sendCrawlNotification, sendErrorAlert, type CrawlReport } from '@/lib/webhook';
 
 export const maxDuration = 60;
 
@@ -72,6 +74,9 @@ export async function GET(request: NextRequest) {
     }
 
     try {
+        const startTime = Date.now();
+        const usedTags: string[] = []; // 记录本次使用的标签
+
         const supabase = createServerClient();
         await logActivity('info', '[自动抓取] 开始执行定时任务...');
 
@@ -119,6 +124,7 @@ export async function GET(request: NextRequest) {
         // 3. Crawl by configured tags if enabled
         if (tagSearchEnabled && configTags.length > 0) {
             const randomTag = configTags[Math.floor(Math.random() * configTags.length)];
+            usedTags.push(randomTag); // 记录使用的标签
             await logActivity('info', `[自动抓取] 标签搜索 "${randomTag}" (${tagSearchLimit}张)...`);
             const tagResult = await crawlByTag(randomTag, tagSearchLimit);
             results.tag = {
@@ -143,6 +149,7 @@ export async function GET(request: NextRequest) {
                 // Crawl more images for higher weight tags (min 3, max 8)
                 const limitForTag = Math.min(8, Math.max(3, Math.ceil(favTag.weight)));
 
+                usedTags.push(tagToSearch); // 记录使用的标签
                 await logActivity('info', `[智能抓取] 根据喜欢标签 "${tagToSearch}" (权重:${favTag.weight}) 抓取${limitForTag}张...`);
 
                 try {
@@ -166,6 +173,25 @@ export async function GET(request: NextRequest) {
             `(排行:${results.ranking.success} R18:${results.r18.success} 标签:${results.tag.success} 智能:${results.favorite.success})`
         );
 
+        // 发送企业微信 Webhook 通知
+        const duration = (Date.now() - startTime) / 1000; // 秒
+        const crawlReport: CrawlReport = {
+            stats: results,
+            totalSuccess,
+            totalFailed,
+            totalSkipped,
+            duration,
+            tags: usedTags.length > 0 ? usedTags : undefined,
+            r18Enabled,
+            tagSearchEnabled,
+            timestamp: new Date(),
+        };
+
+        // 异步发送通知，不阻塞响应
+        sendCrawlNotification(crawlReport).catch((err) => {
+            console.error('Webhook notification failed:', err);
+        });
+
         return NextResponse.json({
             success: true,
             results,
@@ -180,6 +206,11 @@ export async function GET(request: NextRequest) {
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         await logActivity('error', `[自动抓取] 失败: ${errorMessage}`);
+
+        // 发送错误报警
+        sendErrorAlert(errorMessage, '定时自动抓取').catch((err) => {
+            console.error('Webhook error alert failed:', err);
+        });
 
         return NextResponse.json(
             { error: errorMessage },

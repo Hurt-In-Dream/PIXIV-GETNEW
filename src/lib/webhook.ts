@@ -56,12 +56,40 @@ function getWebhookUrl(): string | null {
  * 发送消息到企业微信
  */
 async function sendMessage(message: WeChatMessage): Promise<boolean> {
+    const result = await sendMessageWithDebug(message);
+    return result.success;
+}
+
+/**
+ * 发送消息结果（含调试信息）
+ */
+export interface SendMessageResult {
+    success: boolean;
+    webhookUrl?: string;
+    httpStatus?: number;
+    apiResponse?: {
+        errcode: number;
+        errmsg: string;
+    };
+    error?: string;
+    requestBody?: string;
+}
+
+/**
+ * 发送消息到企业微信（带调试信息）
+ */
+export async function sendMessageWithDebug(message: WeChatMessage): Promise<SendMessageResult> {
     const webhookUrl = getWebhookUrl();
 
     if (!webhookUrl) {
         await logInfo('[Webhook] 未配置企业微信 Webhook URL，跳过推送');
-        return false;
+        return {
+            success: false,
+            error: '未配置 WECOM_WEBHOOK_URL 环境变量'
+        };
     }
+
+    const requestBody = JSON.stringify(message);
 
     try {
         const response = await fetch(webhookUrl, {
@@ -69,27 +97,64 @@ async function sendMessage(message: WeChatMessage): Promise<boolean> {
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(message),
+            body: requestBody,
         });
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            await logError('[Webhook] 发送失败', `HTTP ${response.status}: ${errorText}`);
-            return false;
+        const responseText = await response.text();
+        let apiResponse;
+
+        try {
+            apiResponse = JSON.parse(responseText);
+        } catch {
+            return {
+                success: false,
+                webhookUrl: webhookUrl.substring(0, 60) + '...',
+                httpStatus: response.status,
+                error: `无法解析响应: ${responseText}`,
+                requestBody: requestBody.substring(0, 200) + '...',
+            };
         }
 
-        const result = await response.json();
+        if (!response.ok) {
+            await logError('[Webhook] 发送失败', `HTTP ${response.status}: ${responseText}`);
+            return {
+                success: false,
+                webhookUrl: webhookUrl.substring(0, 60) + '...',
+                httpStatus: response.status,
+                apiResponse,
+                error: `HTTP 错误: ${response.status}`,
+                requestBody: requestBody.substring(0, 200) + '...',
+            };
+        }
 
-        if (result.errcode !== 0) {
-            await logError('[Webhook] 发送失败', `错误码: ${result.errcode}, 消息: ${result.errmsg}`);
-            return false;
+        if (apiResponse.errcode !== 0) {
+            await logError('[Webhook] 发送失败', `错误码: ${apiResponse.errcode}, 消息: ${apiResponse.errmsg}`);
+            return {
+                success: false,
+                webhookUrl: webhookUrl.substring(0, 60) + '...',
+                httpStatus: response.status,
+                apiResponse,
+                error: `企业微信 API 错误: ${apiResponse.errmsg}`,
+                requestBody: requestBody.substring(0, 200) + '...',
+            };
         }
 
         await logInfo('[Webhook] 消息推送成功');
-        return true;
+        return {
+            success: true,
+            webhookUrl: webhookUrl.substring(0, 60) + '...',
+            httpStatus: response.status,
+            apiResponse,
+        };
     } catch (error) {
-        await logError('[Webhook] 发送异常', error instanceof Error ? error.message : String(error));
-        return false;
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        await logError('[Webhook] 发送异常', errorMessage);
+        return {
+            success: false,
+            webhookUrl: webhookUrl.substring(0, 60) + '...',
+            error: errorMessage,
+            requestBody: requestBody.substring(0, 200) + '...',
+        };
     }
 }
 

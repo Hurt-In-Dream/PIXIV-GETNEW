@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { crawlRelated, processIllustration } from '@/lib/transfer';
 import { isAuthenticated } from '@/lib/pixiv';
 
-export const maxDuration = 60;
+export const maxDuration = 300; // 增加超时时间以支持抓取相关推荐
 
 export async function POST(request: NextRequest) {
     if (!isAuthenticated()) {

@@ -8,7 +8,7 @@ import { createServerClient } from '@/lib/supabase';
 import { crawlRanking, crawlByTag } from '@/lib/transfer';
 import { isAuthenticated } from '@/lib/pixiv';
 
-export const maxDuration = 60;
+export const maxDuration = 300; // 增加超时时间以支持更多图片抓取
 
 export async function POST(request: NextRequest) {
     if (!isAuthenticated()) {

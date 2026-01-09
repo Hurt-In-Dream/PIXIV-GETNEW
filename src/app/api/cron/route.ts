@@ -16,7 +16,7 @@ import { isAuthenticated } from '@/lib/pixiv';
 import { logActivity } from '@/lib/logger';
 import { sendCrawlNotification, sendErrorAlert, type CrawlReport } from '@/lib/webhook';
 
-export const maxDuration = 60;
+export const maxDuration = 300; // Vercel Cron Jobs 最大支持 300 秒
 
 interface FavoriteTag {
     tag: string;

@@ -282,10 +282,22 @@ https://your-api-domain/pic?img=参数
 > 📅 01/09 08:01
 ```
 
-### 测试 Webhook
-访问以下 URL 测试推送功能：
+### 测试通知推送
+系统同时支持企业微信 Webhook 和 Qmsg酱 QQ 推送。
+
+**测试所有渠道：**
 ```
 https://你的域名/api/webhook-test?type=debug
+```
+
+**仅测试 Qmsg酱：**
+```
+https://你的域名/api/webhook-test?type=qmsg
+```
+
+**测试报告格式：**
+```
+https://你的域名/api/webhook-test?type=report
 ```
 
 ## 7. 智能筛选系统

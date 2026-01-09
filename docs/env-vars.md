@@ -29,6 +29,12 @@ DASHBOARD_PASSWORD=你的访问密码
 # GitHub 同步 (可选，用于上传图片到 GitHub 仓库)
 GITHUB_TOKEN=ghp_xxxxxxxxxxxx
 
+# 企业微信 Webhook (可选，用于群消息推送)
+WECOM_WEBHOOK_URL=https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx
+
+# Qmsg酱 QQ 推送 (可选，用于 QQ 私聊推送)
+QMSG_KEY=你的Qmsg酱KEY
+
 # 背景图片 (可选，自定义面板背景)
 NEXT_PUBLIC_BACKGROUND_URL=https://pic.wzkws116.xyz/pic?img=ua
 ```
@@ -229,7 +235,35 @@ GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
 
 ---
 
-## 7. 配置到 Vercel
+## 7. Qmsg酱 QQ 推送 (可选)
+
+### QMSG_KEY
+用于将抓取通知推送到 QQ 私聊。
+
+**获取步骤:**
+1. 访问 [Qmsg酱官网](https://qmsg.zendee.cn)
+2. 使用 QQ 登录
+3. 在管理台添加你要接收消息的 QQ 号
+4. 复制你的 KEY
+
+**注意事项:**
+- Qmsg酱 推送的消息为纯文本格式，不支持图片和链接
+- 推送会同时发送到企业微信和 QQ（如果都配置了）
+- 每条消息会先发送企业微信，再发送 Qmsg酱
+
+**测试推送:**
+```
+https://你的域名/api/webhook-test?type=qmsg
+```
+
+**示例:**
+```
+QMSG_KEY=xxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+---
+
+## 8. 配置到 Vercel
 
 ### 添加环境变量
 1. 登录 [Vercel](https://vercel.com/)

@@ -1,6 +1,6 @@
 /**
  * Webhook 测试 API
- * 用于测试企业微信 Webhook 推送功能
+ * 用于测试企业微信 Webhook 和 Qmsg酱 推送功能
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -10,47 +10,94 @@ import {
     sendErrorAlert,
     sendMessageWithDebug,
     isWebhookConfigured,
-    type CrawlReport
+    isQmsgConfigured,
+    sendQmsgMessage,
+    sendQmsgWithDebug,
+    type CrawlReport,
+    type QmsgResult
 } from '@/lib/webhook';
 
 export async function GET(request: NextRequest) {
-    // 检查是否配置了 Webhook
-    if (!isWebhookConfigured()) {
-        return NextResponse.json({
-            success: false,
-            error: '未配置 WECOM_WEBHOOK_URL 环境变量',
-            hint: '请在 Vercel 环境变量中添加 WECOM_WEBHOOK_URL',
-            envCheck: {
-                WECOM_WEBHOOK_URL: !!process.env.WECOM_WEBHOOK_URL,
-            }
-        }, { status: 400 });
-    }
-
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type') || 'debug';
 
     try {
         switch (type) {
             case 'debug':
-                // 发送调试消息并返回详细信息
-                const debugResult = await sendMessageWithDebug({
-                    msgtype: 'text',
-                    text: {
-                        content: '🧪 Pixiv 抓取系统 Webhook 测试\n\n这是一条测试消息，如果你看到这条消息，说明 Webhook 配置成功！\n\n时间: ' + new Date().toISOString()
-                    }
-                });
+                // 发送调试消息并返回详细信息（同时测试 Webhook 和 Qmsg）
+                const wecomConfigured = isWebhookConfigured();
+                const qmsgConfigured = isQmsgConfigured();
+
+                let wecomResult = null;
+                let qmsgResult: QmsgResult | null = null;
+
+                // 测试企业微信
+                if (wecomConfigured) {
+                    wecomResult = await sendMessageWithDebug({
+                        msgtype: 'text',
+                        text: {
+                            content: '🧪 Pixiv 抓取系统 Webhook 测试\n\n这是一条测试消息，如果你看到这条消息，说明 Webhook 配置成功！\n\n时间: ' + new Date().toISOString()
+                        }
+                    });
+                }
+
+                // 测试 Qmsg酱
+                if (qmsgConfigured) {
+                    const testMsg = '🧪 Pixiv 抓取系统 Qmsg酱 测试\n\n这是一条测试消息，如果你看到这条消息，说明 Qmsg酱 配置成功！\n\n时间: ' + new Date().toISOString();
+                    qmsgResult = await sendQmsgWithDebug(testMsg);
+                }
 
                 return NextResponse.json({
                     testType: 'debug',
-                    ...debugResult,
-                    message: debugResult.success
-                        ? '✅ 消息发送成功！请检查企业微信群'
-                        : '❌ 消息发送失败，请检查上方错误信息',
+                    config: {
+                        wecomConfigured,
+                        qmsgConfigured,
+                    },
+                    webhook: wecomConfigured ? {
+                        ...wecomResult,
+                        message: wecomResult?.success
+                            ? '✅ 企业微信消息发送成功！'
+                            : '❌ 企业微信消息发送失败',
+                    } : { message: '⚠️ 未配置 WECOM_WEBHOOK_URL' },
+                    qmsg: qmsgConfigured ? {
+                        ...qmsgResult,
+                        message: qmsgResult?.success
+                            ? '✅ Qmsg酱消息发送成功！'
+                            : '❌ Qmsg酱消息发送失败',
+                    } : { message: '⚠️ 未配置 QMSG_KEY' },
                     timestamp: new Date().toISOString(),
+                });
+
+            case 'qmsg':
+                // 单独测试 Qmsg酱
+                if (!isQmsgConfigured()) {
+                    return NextResponse.json({
+                        success: false,
+                        error: '未配置 QMSG_KEY 环境变量',
+                        hint: '请在 Vercel 环境变量中添加 QMSG_KEY',
+                    }, { status: 400 });
+                }
+
+                const qmsgTestResult = await sendQmsgWithDebug(
+                    '🧪 Pixiv 抓取系统测试\n\n这是一条 Qmsg酱 测试消息！\n如果你看到这条消息，说明配置成功！\n\n时间: ' + new Date().toISOString()
+                );
+
+                return NextResponse.json({
+                    testType: 'qmsg',
+                    ...qmsgTestResult,
+                    message: qmsgTestResult.success
+                        ? '✅ Qmsg酱消息发送成功！请检查 QQ 私聊'
+                        : '❌ Qmsg酱消息发送失败',
                 });
 
             case 'text':
                 // 发送简单文本测试
+                if (!isWebhookConfigured()) {
+                    return NextResponse.json({
+                        success: false,
+                        error: '未配置 WECOM_WEBHOOK_URL 环境变量',
+                    }, { status: 400 });
+                }
                 const textSuccess = await sendTextNotification(
                     '🧪 Pixiv 抓取系统 Webhook 测试\n\n这是一条测试消息，如果你看到这条消息，说明 Webhook 配置成功！'
                 );
@@ -78,10 +125,30 @@ export async function GET(request: NextRequest) {
                     tagSearchEnabled: true,
                     timestamp: new Date(),
                 };
+
+                // 先发送企业微信
                 const reportSuccess = await sendCrawlNotification(mockReport);
+
+                // 再发送 Qmsg酱（如果配置了）
+                let qmsgReportResult: QmsgResult | null = null;
+                if (isQmsgConfigured()) {
+                    const reportText = `🖼️ Pixiv 自动抓取报告（测试）
+✅ 成功
+
+✨ 新增 20 张 | 跳过 4
+⏱ 耗时 45.6秒
+
+📊排行榜: 8 | 🔞R18: 5 | 🏷️标签: 3 | 🧠智能: 4
+
+🏷️ 風景 女の子 原神 ブルーアーカイブ`;
+                    qmsgReportResult = await sendQmsgMessage(reportText);
+                }
+
                 return NextResponse.json({
-                    success: reportSuccess,
-                    message: reportSuccess ? '报告发送成功！' : '报告发送失败',
+                    success: reportSuccess || (qmsgReportResult?.success ?? false),
+                    webhook: { success: reportSuccess },
+                    qmsg: qmsgReportResult || { message: '未配置 QMSG_KEY' },
+                    message: '报告发送完成！',
                     type,
                 });
 
@@ -91,9 +158,21 @@ export async function GET(request: NextRequest) {
                     'PIXIV_PHPSESSID 已过期，无法访问 Pixiv API',
                     'Webhook 测试 - 模拟错误'
                 );
+
+                // 再发送 Qmsg酱（如果配置了）
+                let qmsgErrorResult: QmsgResult | null = null;
+                if (isQmsgConfigured()) {
+                    const errorText = `❌ 抓取异常 - Webhook 测试
+PIXIV_PHPSESSID 已过期，无法访问 Pixiv API
+📅 ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`;
+                    qmsgErrorResult = await sendQmsgMessage(errorText);
+                }
+
                 return NextResponse.json({
-                    success: errorSuccess,
-                    message: errorSuccess ? '错误报警发送成功！' : '错误报警发送失败',
+                    success: errorSuccess || (qmsgErrorResult?.success ?? false),
+                    webhook: { success: errorSuccess },
+                    qmsg: qmsgErrorResult || { message: '未配置 QMSG_KEY' },
+                    message: '错误报警发送完成！',
                     type,
                 });
 
@@ -101,8 +180,12 @@ export async function GET(request: NextRequest) {
                 return NextResponse.json({
                     success: false,
                     error: `未知的测试类型: ${type}`,
-                    availableTypes: ['debug', 'text', 'report', 'error'],
-                    hint: '推荐使用 ?type=debug 查看详细调试信息'
+                    availableTypes: ['debug', 'qmsg', 'text', 'report', 'error'],
+                    hint: '推荐使用 ?type=debug 同时测试所有配置的推送渠道',
+                    config: {
+                        wecomConfigured: isWebhookConfigured(),
+                        qmsgConfigured: isQmsgConfigured(),
+                    }
                 }, { status: 400 });
         }
 

@@ -1,5 +1,6 @@
 /**
- * 企业微信 Webhook 消息推送
+ * 消息推送模块
+ * 支持企业微信 Webhook 和 Qmsg酱 QQ消息推送
  * 用于在自动抓取完成后发送通知
  */
 
@@ -46,10 +47,24 @@ export interface CrawlReport {
 }
 
 /**
- * 获取 Webhook URL
+ * 获取企业微信 Webhook URL
  */
 function getWebhookUrl(): string | null {
     return process.env.WECOM_WEBHOOK_URL || null;
+}
+
+/**
+ * 获取 Qmsg酱 Key
+ */
+function getQmsgKey(): string | null {
+    return process.env.QMSG_KEY || null;
+}
+
+/**
+ * 检查 Qmsg酱 是否已配置
+ */
+export function isQmsgConfigured(): boolean {
+    return !!getQmsgKey();
 }
 
 /**
@@ -432,5 +447,296 @@ export async function sendSimpleCrawlNotification(report: SimpleCrawlReport): Pr
         markdown: { content }
     };
 
-    return sendMessage(message);
+    // 先发送企业微信
+    const wecomResult = await sendMessage(message);
+
+    // 再发送 Qmsg酱（纯文本格式）
+    const plainText = generateSimpleCrawlPlainText(report);
+    await sendQmsgMessage(plainText);
+
+    return wecomResult;
+}
+
+// ============================================
+// Qmsg酱 消息推送相关函数
+// ============================================
+
+/**
+ * Qmsg酱 API 响应格式
+ */
+export interface QmsgResponse {
+    success: boolean;
+    reason: string;
+    code: number;
+    info?: { msgId: number };
+}
+
+/**
+ * Qmsg酱 发送结果
+ */
+export interface QmsgResult {
+    success: boolean;
+    httpStatus?: number;
+    response?: QmsgResponse;
+    error?: string;
+}
+
+/**
+ * 发送消息到 Qmsg酱
+ * @param msg 消息内容（纯文本，不支持富文本）
+ */
+export async function sendQmsgMessage(msg: string): Promise<QmsgResult> {
+    const qmsgKey = getQmsgKey();
+
+    if (!qmsgKey) {
+        return {
+            success: false,
+            error: '未配置 QMSG_KEY 环境变量'
+        };
+    }
+
+    const url = `https://qmsg.zendee.cn/send/${qmsgKey}`;
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `msg=${encodeURIComponent(msg)}`,
+        });
+
+        const data: QmsgResponse = await response.json();
+
+        if (data.success) {
+            await logInfo('[Qmsg] 消息推送成功');
+            return {
+                success: true,
+                httpStatus: response.status,
+                response: data,
+            };
+        } else {
+            await logError('[Qmsg] 发送失败', `${data.reason} (code: ${data.code})`);
+            return {
+                success: false,
+                httpStatus: response.status,
+                response: data,
+                error: data.reason,
+            };
+        }
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        await logError('[Qmsg] 发送异常', errorMessage);
+        return {
+            success: false,
+            error: errorMessage,
+        };
+    }
+}
+
+/**
+ * 发送 Qmsg酱 消息并返回详细调试信息
+ */
+export async function sendQmsgWithDebug(msg: string): Promise<QmsgResult> {
+    return sendQmsgMessage(msg);
+}
+
+/**
+ * 将 Markdown 内容转换为纯文本（用于 Qmsg酱）
+ * 去除所有富文本格式：图片、链接、HTML标签等
+ */
+function markdownToPlainText(markdown: string): string {
+    return markdown
+        // 移除 HTML 标签（如 <font color="...">）
+        .replace(/<[^>]+>/g, '')
+        // 移除 Markdown 链接 [text](url) -> text
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        // 移除代码块 `code` -> code
+        .replace(/`([^`]+)`/g, '$1')
+        // 移除加粗 **text** -> text
+        .replace(/\*\*([^*]+)\*\*/g, '$1')
+        // 移除斜体 *text* -> text
+        .replace(/\*([^*]+)\*/g, '$1')
+        // 移除引用前缀 > 
+        .replace(/^>\s*/gm, '')
+        // 移除标题前缀 # ## ### 等
+        .replace(/^#+\s*/gm, '')
+        // 合并多余空行
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
+/**
+ * 生成抓取报告纯文本（用于 Qmsg酱）
+ */
+function generateCrawlReportPlainText(report: CrawlReport): string {
+    const { stats, totalSuccess, totalFailed, totalSkipped, duration, tags, r18Enabled, tagSearchEnabled, timestamp } = report;
+
+    const overallStatus = totalFailed > 0 ? (totalSuccess > 0 ? '⚠️ 部分成功' : '❌ 失败') : '✅ 成功';
+
+    const timeStr = timestamp.toLocaleString('zh-CN', {
+        timeZone: 'Asia/Shanghai',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+
+    let text = `🖼️ Pixiv 自动抓取报告\n`;
+    text += `${overallStatus}\n\n`;
+    text += `✨ 新增 ${totalSuccess} 张`;
+    if (totalFailed > 0) text += ` | ❌ 失败 ${totalFailed}`;
+    if (totalSkipped > 0) text += ` | ⏭ 跳过 ${totalSkipped}`;
+    text += `\n⏱ 耗时 ${formatDuration(duration)} | 📅 ${timeStr}\n\n`;
+
+    // 分类统计
+    const categories: string[] = [];
+    if (stats.ranking.success > 0 || stats.ranking.failed > 0) {
+        categories.push(`📊排行榜: ${stats.ranking.success}`);
+    }
+    if (r18Enabled && (stats.r18.success > 0 || stats.r18.failed > 0)) {
+        categories.push(`🔞R18: ${stats.r18.success}`);
+    }
+    if (tagSearchEnabled && (stats.tag.success > 0 || stats.tag.failed > 0)) {
+        categories.push(`🏷️标签: ${stats.tag.success}`);
+    }
+    const totalFavorite = stats.favorite.success + stats.favorite.failed + stats.favorite.skipped;
+    if (totalFavorite > 0) {
+        categories.push(`🧠智能: ${stats.favorite.success}`);
+    }
+
+    if (categories.length > 0) {
+        text += categories.join(' | ') + `\n`;
+    }
+
+    // 标签
+    if (tags && tags.length > 0) {
+        text += `\n🏷️ ` + tags.join(' ');
+    }
+
+    return text;
+}
+
+/**
+ * 生成开始抓取纯文本（用于 Qmsg酱）
+ */
+function generateStartPlainText(type: CrawlType, details?: { limit?: number; pid?: number; tag?: string; r18Enabled?: boolean }): string {
+    const typeName = getCrawlTypeName(type);
+    const timeStr = new Date().toLocaleString('zh-CN', {
+        timeZone: 'Asia/Shanghai',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+
+    let text = `🚀 开始${typeName}抓取\n`;
+
+    const detailParts: string[] = [];
+    if (details?.limit) detailParts.push(`🎯 目标 ${details.limit} 张`);
+    if (details?.pid) detailParts.push(`🎴 PID ${details.pid}`);
+    if (details?.tag) detailParts.push(`🏷️ ${details.tag}`);
+    if (details?.r18Enabled) detailParts.push(`🔞 R18`);
+
+    if (detailParts.length > 0) {
+        text += detailParts.join(' | ') + `\n`;
+    }
+    text += `📅 ${timeStr}`;
+
+    return text;
+}
+
+/**
+ * 生成简化版抓取完成纯文本（用于 Qmsg酱）
+ */
+function generateSimpleCrawlPlainText(report: SimpleCrawlReport): string {
+    const { type, success, failed, skipped, duration, details } = report;
+    const typeName = getCrawlTypeName(type);
+    const overallStatus = failed > 0 ? (success > 0 ? '⚠️ 部分成功' : '❌ 失败') : '✅ 成功';
+
+    let text = `🖼️ ${typeName}抓取完成 ${overallStatus}\n`;
+
+    if (details?.pid) {
+        text += `🎴 PID ${details.pid}\n`;
+    }
+    if (details?.tag) {
+        text += `🏷️ 标签 ${details.tag}\n`;
+    }
+
+    text += `✨ +${success} 新增`;
+    if (failed > 0) text += ` | ❌ ${failed} 失败`;
+    if (skipped > 0) text += ` | ⏭ ${skipped} 跳过`;
+    text += ` | ⏱ ${formatDuration(duration)}`;
+
+    return text;
+}
+
+/**
+ * 生成错误报警纯文本（用于 Qmsg酱）
+ */
+function generateErrorPlainText(error: string, context?: string): string {
+    const timeStr = new Date().toLocaleString('zh-CN', {
+        timeZone: 'Asia/Shanghai',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+
+    let text = `❌ 抓取异常`;
+    if (context) {
+        text += ` - ${context}`;
+    }
+    text += `\n${error}\n📅 ${timeStr}`;
+
+    return text;
+}
+
+// ============================================
+// 组合推送函数（先 Webhook 后 Qmsg）
+// ============================================
+
+/**
+ * 发送抓取完成通知（Webhook + Qmsg）
+ */
+export async function sendCrawlNotificationAll(report: CrawlReport): Promise<boolean> {
+    // 先发送企业微信
+    const wecomResult = await sendCrawlNotification(report);
+
+    // 再发送 Qmsg酱
+    const plainText = generateCrawlReportPlainText(report);
+    await sendQmsgMessage(plainText);
+
+    return wecomResult;
+}
+
+/**
+ * 发送开始抓取通知（Webhook + Qmsg）
+ */
+export async function sendCrawlStartNotificationAll(
+    type: CrawlType,
+    details?: { limit?: number; pid?: number; tag?: string; r18Enabled?: boolean }
+): Promise<boolean> {
+    // 先发送企业微信
+    const wecomResult = await sendCrawlStartNotification(type, details);
+
+    // 再发送 Qmsg酱
+    const plainText = generateStartPlainText(type, details);
+    await sendQmsgMessage(plainText);
+
+    return wecomResult;
+}
+
+/**
+ * 发送错误报警（Webhook + Qmsg）
+ */
+export async function sendErrorAlertAll(error: string, context?: string): Promise<boolean> {
+    // 先发送企业微信
+    const wecomResult = await sendErrorAlert(error, context);
+
+    // 再发送 Qmsg酱
+    const plainText = generateErrorPlainText(error, context);
+    await sendQmsgMessage(plainText);
+
+    return wecomResult;
 }

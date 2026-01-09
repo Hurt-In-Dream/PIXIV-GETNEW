@@ -38,6 +38,13 @@ export default function GitHubSync() {
     const [expanded, setExpanded] = useState(false);
     const [syncProgress, setSyncProgress] = useState<string>('');
 
+    // Progress tracking
+    const [progressData, setProgressData] = useState<{
+        current: number;
+        total: number;
+        category: string;
+    } | null>(null);
+
     useEffect(() => {
         fetchStatus();
     }, []);
@@ -125,7 +132,15 @@ export default function GitHubSync() {
         setSyncProgress('');
         addActivityLog('info', '[GitHub同步] 开始一键同步所有分类...');
 
+        // Calculate total pending for progress
+        let totalPendingAll = 0;
+        for (const category of ALL_CATEGORIES) {
+            const catStatus = status?.categories[category];
+            totalPendingAll += (catStatus?.total || 0) - (catStatus?.synced || 0);
+        }
+
         let totalUploaded = 0;
+        let processedSoFar = 0;
 
         for (const category of ALL_CATEGORIES) {
             const catStatus = status?.categories[category];
@@ -134,10 +149,22 @@ export default function GitHubSync() {
             if (pending <= 0) continue;
 
             setSyncProgress(`正在同步 ${CATEGORY_CONFIG[category].label}...`);
+            setProgressData({
+                current: processedSoFar,
+                total: totalPendingAll,
+                category: CATEGORY_CONFIG[category].label
+            });
             addActivityLog('info', `[GitHub同步] 开始同步 ${CATEGORY_CONFIG[category].label} (${pending} 张待传)...`);
 
             const uploaded = await syncCategoryFully(category);
             totalUploaded += uploaded;
+            processedSoFar += pending;
+
+            setProgressData({
+                current: processedSoFar,
+                total: totalPendingAll,
+                category: CATEGORY_CONFIG[category].label
+            });
 
             if (uploaded > 0) {
                 addActivityLog('success', `[GitHub同步] ${CATEGORY_CONFIG[category].label} 完成，上传 ${uploaded} 张`);
@@ -145,6 +172,7 @@ export default function GitHubSync() {
         }
 
         setSyncProgress('');
+        setProgressData(null);
 
         if (totalUploaded > 0) {
             setResult({
@@ -191,12 +219,12 @@ export default function GitHubSync() {
         return (
             <div className="card-anime p-6">
                 <div className="flex items-center gap-3 mb-4">
-                    <div className="p-2 rounded-xl bg-gradient-to-br from-gray-500 to-gray-600">
+                    <div className="p-2 rounded-lg bg-gray-400 dark:bg-gray-600">
                         <Github className="w-5 h-5 text-white" />
                     </div>
                     <h2 className="text-xl font-bold text-gray-400">GitHub 同步</h2>
                 </div>
-                <div className="p-4 rounded-xl bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
+                <div className="p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
                     <div className="flex items-center gap-2 text-yellow-600 dark:text-yellow-400">
                         <AlertCircle className="w-5 h-5" />
                         <span className="text-sm font-medium">未配置 GITHUB_TOKEN 环境变量</span>
@@ -258,11 +286,11 @@ export default function GitHubSync() {
         <div className="card-anime p-6">
             <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-xl bg-gradient-to-br from-gray-700 to-gray-900">
-                        <Github className="w-5 h-5 text-white" />
+                    <div className="p-2 rounded-lg bg-gray-800 dark:bg-gray-200">
+                        <Github className="w-5 h-5 text-white dark:text-gray-900" />
                     </div>
                     <div>
-                        <h2 className="text-xl font-bold bg-gradient-to-r from-gray-600 to-gray-800 dark:from-gray-300 dark:to-gray-100 bg-clip-text text-transparent">
+                        <h2 className="text-xl font-bold text-gray-900 dark:text-white">
                             GitHub 同步
                         </h2>
                         <p className="text-xs text-gray-500">
@@ -283,7 +311,7 @@ export default function GitHubSync() {
             <button
                 onClick={handleSyncAll}
                 disabled={syncing !== null || totalPending === 0}
-                className="w-full mb-4 px-4 py-3 rounded-xl bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 hover:from-indigo-600 hover:via-purple-600 hover:to-pink-600 disabled:from-gray-400 disabled:via-gray-400 disabled:to-gray-400 text-white font-medium transition-all flex items-center justify-center gap-2 shadow-lg hover:shadow-purple-500/25"
+                className="w-full mb-4 px-4 py-3 rounded-lg bg-gray-800 dark:bg-gray-200 hover:bg-gray-700 dark:hover:bg-gray-300 disabled:bg-gray-400 dark:disabled:bg-gray-600 text-white dark:text-gray-900 font-medium transition-all flex items-center justify-center gap-2"
             >
                 {syncing === 'all' ? (
                     <>
@@ -297,6 +325,33 @@ export default function GitHubSync() {
                     </>
                 )}
             </button>
+
+            {/* Global Progress Bar */}
+            {syncing === 'all' && progressData && (
+                <div className="mb-4 p-3 rounded-lg bg-gray-100 dark:bg-gray-800">
+                    <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">
+                            正在同步: {progressData.category}
+                        </span>
+                        <span className="text-sm font-medium text-gray-900 dark:text-white">
+                            {progressData.current} / {progressData.total}
+                        </span>
+                    </div>
+                    <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                        <div
+                            className="h-full bg-gray-800 dark:bg-gray-200 rounded-full transition-all duration-300"
+                            style={{
+                                width: progressData.total > 0
+                                    ? `${(progressData.current / progressData.total) * 100}%`
+                                    : '0%'
+                            }}
+                        />
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1 text-right">
+                        {Math.round((progressData.current / progressData.total) * 100)}%
+                    </div>
+                </div>
+            )}
 
             {/* Main Categories (Ranking) */}
             <div className="grid grid-cols-2 gap-3 mb-3">
@@ -331,8 +386,8 @@ export default function GitHubSync() {
             {/* Result Message */}
             {result && (
                 <div className={`mt-4 p-3 rounded-lg ${result.success
-                        ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
-                        : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'
+                    ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
+                    : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'
                     }`}>
                     <div className="flex items-center gap-2">
                         {result.success ? (

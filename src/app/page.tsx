@@ -12,7 +12,7 @@ import {
     CleanupTool
 } from '@/components/dashboard';
 import LoginScreen from '@/components/LoginScreen';
-import { Sparkles, Github, LogOut, Loader2 } from 'lucide-react';
+import { Github, LogOut, Loader2 } from 'lucide-react';
 
 interface Settings {
     cron_expression: string;
@@ -102,14 +102,13 @@ export default function Dashboard() {
                 <div className="container mx-auto px-4 py-4">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                            <div className="relative">
-                                <div className="absolute -inset-1 rounded-xl bg-gradient-to-r from-purple-500 via-pink-500 to-rose-500 blur opacity-75 group-hover:opacity-100 transition duration-300 animate-pulse-soft" />
-                                <div className="relative p-2 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500">
-                                    <Sparkles className="w-6 h-6 text-white" />
-                                </div>
-                            </div>
+                            <img
+                                src="/icon.png"
+                                alt="Logo"
+                                className="w-10 h-10 rounded-lg"
+                            />
                             <div>
-                                <h1 className="text-xl font-bold bg-gradient-to-r from-white via-purple-200 to-pink-200 bg-clip-text text-transparent">
+                                <h1 className="text-xl font-bold text-white">
                                     Pixiv-Vercel-Sync
                                 </h1>
                                 <p className="text-xs text-gray-400">

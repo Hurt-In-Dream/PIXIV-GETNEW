@@ -329,3 +329,122 @@ export async function sendErrorAlert(error: string, context?: string): Promise<b
 export function isWebhookConfigured(): boolean {
     return !!getWebhookUrl();
 }
+
+/**
+ * 抓取类型枚举
+ */
+export type CrawlType = 'auto' | 'manual' | 'pid' | 'tag';
+
+/**
+ * 获取抓取类型的中文名称
+ */
+function getCrawlTypeName(type: CrawlType): string {
+    const names: Record<CrawlType, string> = {
+        auto: '自动定时',
+        manual: '手动',
+        pid: 'PID',
+        tag: '标签搜索',
+    };
+    return names[type] || type;
+}
+
+/**
+ * 发送抓取开始通知
+ * @param type 抓取类型
+ * @param details 额外详情（如 PID、标签名等）
+ */
+export async function sendCrawlStartNotification(
+    type: CrawlType,
+    details?: { limit?: number; pid?: number; tag?: string; r18Enabled?: boolean }
+): Promise<boolean> {
+    const webhookUrl = getWebhookUrl();
+
+    if (!webhookUrl) {
+        return false;
+    }
+
+    const timestamp = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+    const typeName = getCrawlTypeName(type);
+
+    let content = `# 🚀 开始${typeName}抓取\n`;
+    content += `> 时间: ${timestamp}\n\n`;
+
+    // 添加详情
+    if (details) {
+        if (details.limit) {
+            content += `**目标数量**: ${details.limit} 张\n`;
+        }
+        if (details.pid) {
+            content += `**PID**: ${details.pid}\n`;
+        }
+        if (details.tag) {
+            content += `**标签**: \`${details.tag}\`\n`;
+        }
+        if (details.r18Enabled) {
+            content += `**R18**: 已启用\n`;
+        }
+    }
+
+    const message: MarkdownMessage = {
+        msgtype: 'markdown',
+        markdown: { content }
+    };
+
+    return sendMessage(message);
+}
+
+/**
+ * 简化版抓取完成通知（用于手动抓取和 PID 抓取）
+ */
+export interface SimpleCrawlReport {
+    type: CrawlType;
+    success: number;
+    failed: number;
+    skipped: number;
+    duration: number; // 秒
+    details?: { pid?: number; tag?: string };
+}
+
+/**
+ * 发送简化版抓取完成通知
+ */
+export async function sendSimpleCrawlNotification(report: SimpleCrawlReport): Promise<boolean> {
+    const webhookUrl = getWebhookUrl();
+
+    if (!webhookUrl) {
+        return false;
+    }
+
+    const { type, success, failed, skipped, duration, details } = report;
+    const typeName = getCrawlTypeName(type);
+    const timestamp = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+
+    // 整体状态
+    const overallStatus = failed > 0 ? (success > 0 ? '⚠️ 部分成功' : '❌ 抓取失败') : '✅ 抓取成功';
+    const statusColor = failed > 0 ? 'warning' : 'info';
+
+    let content = `# 🖼️ ${typeName}抓取完成\n`;
+    content += `> 时间: ${timestamp}\n\n`;
+
+    // 详情
+    if (details?.pid) {
+        content += `**PID**: ${details.pid}\n`;
+    }
+    if (details?.tag) {
+        content += `**标签**: \`${details.tag}\`\n`;
+    }
+
+    content += `\n## 📊 统计\n`;
+    content += `<font color="${statusColor}">${overallStatus}</font>\n`;
+    content += `> 新增: <font color="info">**${success}**</font> 张\n`;
+    content += `> 失败: <font color="${failed > 0 ? 'warning' : 'comment'}">${failed}</font> 张\n`;
+    content += `> 跳过: <font color="comment">${skipped}</font> 张\n`;
+    content += `> 耗时: <font color="comment">${formatDuration(duration)}</font>\n`;
+
+    const message: MarkdownMessage = {
+        msgtype: 'markdown',
+        markdown: { content }
+    };
+
+    return sendMessage(message);
+}

@@ -193,68 +193,46 @@ function generateCrawlReportMarkdown(report: CrawlReport): string {
     // 格式化时间
     const timeStr = timestamp.toLocaleString('zh-CN', {
         timeZone: 'Asia/Shanghai',
-        year: 'numeric',
         month: '2-digit',
         day: '2-digit',
         hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
+        minute: '2-digit'
     });
 
-    let content = `# 🖼️ Pixiv 自动抓取报告\n`;
-    content += `> 执行时间: ${timeStr}\n\n`;
+    let content = `**🖼️ Pixiv 自动抓取报告**\n`;
+    content += `<font color="${statusColor}">${overallStatus}</font>\n\n`;
 
-    // 总体统计
-    content += `## 📊 总体统计\n`;
-    content += `<font color="${statusColor}">${overallStatus}</font>\n`;
-    content += `> 新增: <font color="info">**${totalSuccess}**</font> 张\n`;
-    content += `> 失败: <font color="${totalFailed > 0 ? 'warning' : 'comment'}">${totalFailed}</font> 张\n`;
-    content += `> 跳过: <font color="comment">${totalSkipped}</font> 张\n`;
-    content += `> 耗时: <font color="comment">${formatDuration(duration)}</font>\n\n`;
-
-    // 分类详情
-    content += `## 📋 分类详情\n`;
-
-    // 排行榜
-    const rankingEmoji = getStatusEmoji(stats.ranking.success, stats.ranking.failed);
-    content += `${rankingEmoji} **排行榜**: ${stats.ranking.success} 成功`;
-    if (stats.ranking.failed > 0) content += ` / ${stats.ranking.failed} 失败`;
-    if (stats.ranking.skipped > 0) content += ` / ${stats.ranking.skipped} 跳过`;
+    // 核心统计 - 简洁明了
+    content += `> ✨ **新增** <font color="info">${totalSuccess}</font> 张`;
+    if (totalFailed > 0) content += ` | ❌ **失败** <font color="warning">${totalFailed}</font>`;
+    if (totalSkipped > 0) content += ` | ⏭ **跳过** ${totalSkipped}`;
     content += `\n`;
+    content += `> ⏱ 耗时 ${formatDuration(duration)} | 📅 ${timeStr}\n\n`;
 
-    // R18
-    if (r18Enabled) {
-        const r18Emoji = getStatusEmoji(stats.r18.success, stats.r18.failed);
-        content += `${r18Emoji} **R18排行**: ${stats.r18.success} 成功`;
-        if (stats.r18.failed > 0) content += ` / ${stats.r18.failed} 失败`;
-        if (stats.r18.skipped > 0) content += ` / ${stats.r18.skipped} 跳过`;
-        content += `\n`;
+    // 分类统计 - 使用简洁格式
+    const categories: string[] = [];
+
+    if (stats.ranking.success > 0 || stats.ranking.failed > 0) {
+        categories.push(`📊排行榜: ${stats.ranking.success}`);
     }
-
-    // 标签搜索
-    if (tagSearchEnabled) {
-        const tagEmoji = getStatusEmoji(stats.tag.success, stats.tag.failed);
-        content += `${tagEmoji} **标签搜索**: ${stats.tag.success} 成功`;
-        if (stats.tag.failed > 0) content += ` / ${stats.tag.failed} 失败`;
-        if (stats.tag.skipped > 0) content += ` / ${stats.tag.skipped} 跳过`;
-        content += `\n`;
+    if (r18Enabled && (stats.r18.success > 0 || stats.r18.failed > 0)) {
+        categories.push(`🔞R18: ${stats.r18.success}`);
     }
-
-    // 智能抓取
+    if (tagSearchEnabled && (stats.tag.success > 0 || stats.tag.failed > 0)) {
+        categories.push(`🏷️标签: ${stats.tag.success}`);
+    }
     const totalFavorite = stats.favorite.success + stats.favorite.failed + stats.favorite.skipped;
     if (totalFavorite > 0) {
-        const favEmoji = getStatusEmoji(stats.favorite.success, stats.favorite.failed);
-        content += `${favEmoji} **智能推荐**: ${stats.favorite.success} 成功`;
-        if (stats.favorite.failed > 0) content += ` / ${stats.favorite.failed} 失败`;
-        if (stats.favorite.skipped > 0) content += ` / ${stats.favorite.skipped} 跳过`;
-        content += `\n`;
+        categories.push(`🧠智能: ${stats.favorite.success}`);
+    }
+
+    if (categories.length > 0) {
+        content += categories.join(' | ') + `\n`;
     }
 
     // 本次涉及的标签
     if (tags && tags.length > 0) {
-        content += `\n## 🏷️ 抓取标签\n`;
-        content += tags.map(tag => `\`${tag}\``).join(' ');
-        content += `\n`;
+        content += `\n🏷️ ` + tags.map(tag => `\`${tag}\``).join(' ');
     }
 
     return content;
@@ -306,14 +284,22 @@ export async function sendErrorAlert(error: string, context?: string): Promise<b
         return false;
     }
 
-    const timestamp = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+    const timeStr = new Date().toLocaleString('zh-CN', {
+        timeZone: 'Asia/Shanghai',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
 
-    let content = `# ❌ Pixiv 抓取异常\n`;
-    content += `> 时间: ${timestamp}\n\n`;
+    // 简洁的错误通知
+    let content = `**❌ 抓取异常**`;
     if (context) {
-        content += `**场景**: ${context}\n\n`;
+        content += ` - ${context}`;
     }
-    content += `**错误**: <font color="warning">${error}</font>`;
+    content += `\n`;
+    content += `> <font color="warning">${error}</font>\n`;
+    content += `> 📅 ${timeStr}`;
 
     const message: MarkdownMessage = {
         msgtype: 'markdown',
@@ -363,27 +349,29 @@ export async function sendCrawlStartNotification(
         return false;
     }
 
-    const timestamp = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
     const typeName = getCrawlTypeName(type);
+    const timeStr = new Date().toLocaleString('zh-CN', {
+        timeZone: 'Asia/Shanghai',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
 
-    let content = `# 🚀 开始${typeName}抓取\n`;
-    content += `> 时间: ${timestamp}\n\n`;
+    // 简洁的开始通知
+    let content = `**🚀 开始${typeName}抓取**\n`;
 
-    // 添加详情
-    if (details) {
-        if (details.limit) {
-            content += `**目标数量**: ${details.limit} 张\n`;
-        }
-        if (details.pid) {
-            content += `**PID**: ${details.pid}\n`;
-        }
-        if (details.tag) {
-            content += `**标签**: \`${details.tag}\`\n`;
-        }
-        if (details.r18Enabled) {
-            content += `**R18**: 已启用\n`;
-        }
+    // 详情使用引用样式
+    const detailParts: string[] = [];
+    if (details?.limit) detailParts.push(`🎯 目标 ${details.limit} 张`);
+    if (details?.pid) detailParts.push(`🎴 PID \`${details.pid}\``);
+    if (details?.tag) detailParts.push(`🏷️ \`${details.tag}\``);
+    if (details?.r18Enabled) detailParts.push(`🔞 R18`);
+
+    if (detailParts.length > 0) {
+        content += `> ` + detailParts.join(' | ') + `\n`;
     }
+    content += `> 📅 ${timeStr}`;
 
     const message: MarkdownMessage = {
         msgtype: 'markdown',
@@ -417,29 +405,27 @@ export async function sendSimpleCrawlNotification(report: SimpleCrawlReport): Pr
 
     const { type, success, failed, skipped, duration, details } = report;
     const typeName = getCrawlTypeName(type);
-    const timestamp = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 
     // 整体状态
-    const overallStatus = failed > 0 ? (success > 0 ? '⚠️ 部分成功' : '❌ 抓取失败') : '✅ 抓取成功';
+    const overallStatus = failed > 0 ? (success > 0 ? '⚠️ 部分成功' : '❌ 失败') : '✅ 成功';
     const statusColor = failed > 0 ? 'warning' : 'info';
 
-    let content = `# 🖼️ ${typeName}抓取完成\n`;
-    content += `> 时间: ${timestamp}\n\n`;
+    // 简洁的完成通知
+    let content = `**🖼️ ${typeName}抓取完成** <font color="${statusColor}">${overallStatus}</font>\n`;
 
-    // 详情
+    // 详情部分
     if (details?.pid) {
-        content += `**PID**: ${details.pid}\n`;
+        content += `> 🎴 PID \`${details.pid}\`\n`;
     }
     if (details?.tag) {
-        content += `**标签**: \`${details.tag}\`\n`;
+        content += `> 🏷️ 标签 \`${details.tag}\`\n`;
     }
 
-    content += `\n## 📊 统计\n`;
-    content += `<font color="${statusColor}">${overallStatus}</font>\n`;
-    content += `> 新增: <font color="info">**${success}**</font> 张\n`;
-    content += `> 失败: <font color="${failed > 0 ? 'warning' : 'comment'}">${failed}</font> 张\n`;
-    content += `> 跳过: <font color="comment">${skipped}</font> 张\n`;
-    content += `> 耗时: <font color="comment">${formatDuration(duration)}</font>\n`;
+    // 统计信息 - 单行展示
+    content += `> ✨ **+${success}** 新增`;
+    if (failed > 0) content += ` | ❌ ${failed} 失败`;
+    if (skipped > 0) content += ` | ⏭ ${skipped} 跳过`;
+    content += ` | ⏱ ${formatDuration(duration)}`;
 
     const message: MarkdownMessage = {
         msgtype: 'markdown',

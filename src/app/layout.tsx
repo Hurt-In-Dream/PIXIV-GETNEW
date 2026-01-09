@@ -16,6 +16,9 @@ export const metadata: Metadata = {
     },
 };
 
+// 从环境变量获取背景图片URL
+const BACKGROUND_IMAGE_URL = process.env.NEXT_PUBLIC_BACKGROUND_URL || '';
+
 export default function RootLayout({
     children,
 }: Readonly<{
@@ -24,22 +27,18 @@ export default function RootLayout({
     return (
         <html lang="zh-CN" className="dark">
             <body className={`${inter.className} antialiased`}>
-                {/* Animated background particles */}
-                <div className="particles">
-                    {Array.from({ length: 20 }).map((_, i) => (
+                {/* 背景图片层 */}
+                {BACKGROUND_IMAGE_URL && (
+                    <>
                         <div
-                            key={i}
-                            className="particle"
-                            style={{
-                                left: `${Math.random() * 100}%`,
-                                animationDelay: `${Math.random() * 15}s`,
-                                animationDuration: `${15 + Math.random() * 10}s`,
-                            }}
+                            className="bg-image-layer"
+                            style={{ backgroundImage: `url(${BACKGROUND_IMAGE_URL})` }}
                         />
-                    ))}
-                </div>
+                        <div className="bg-overlay" />
+                    </>
+                )}
 
-                {/* Main content */}
+                {/* 主内容 */}
                 <div className="relative z-10 min-h-screen">
                     {children}
                 </div>

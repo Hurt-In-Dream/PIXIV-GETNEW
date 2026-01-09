@@ -39,13 +39,15 @@ interface PaginatedResponse {
 
 type ImageSource = 'ranking' | 'r18' | 'tag' | 'pid' | 'all';
 
-const SOURCE_OPTIONS: { value: ImageSource; label: string; color: string }[] = [
-    { value: 'ranking', label: '排行榜', color: 'from-blue-500 to-indigo-500' },
-    { value: 'tag', label: '标签搜索', color: 'from-green-500 to-emerald-500' },
-    { value: 'pid', label: 'PID抓取', color: 'from-orange-500 to-amber-500' },
-    { value: 'r18', label: 'R-18', color: 'from-rose-500 to-red-500' },
-    { value: 'all', label: '全部', color: 'from-purple-500 to-pink-500' },
+const SOURCE_OPTIONS: { value: ImageSource; label: string }[] = [
+    { value: 'ranking', label: '排行榜' },
+    { value: 'tag', label: '标签搜索' },
+    { value: 'pid', label: 'PID抓取' },
+    { value: 'r18', label: 'R-18' },
+    { value: 'all', label: '全部' },
 ];
+
+const PAGE_SIZE_OPTIONS = [12, 24, 36, 48];
 
 // Image fallback sources
 const getImageSources = (pid: number, r2Url: string | null, originalUrl?: string): string[] => {
@@ -222,6 +224,7 @@ export default function ImageGallery() {
     const [total, setTotal] = useState(0);
     const [copiedId, setCopiedId] = useState<string | null>(null);
     const [source, setSource] = useState<ImageSource>('ranking');
+    const [pageSize, setPageSize] = useState(12);
 
     // Delete modal state
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -239,7 +242,7 @@ export default function ImageGallery() {
     const fetchImages = useCallback(async () => {
         setLoading(true);
         try {
-            const response = await fetch(`/api/images?page=${page}&limit=12&source=${source}`);
+            const response = await fetch(`/api/images?page=${page}&limit=${pageSize}&source=${source}`);
             const data: PaginatedResponse = await response.json();
 
             setImages(data.images);
@@ -250,15 +253,20 @@ export default function ImageGallery() {
         } finally {
             setLoading(false);
         }
-    }, [page, source]);
+    }, [page, source, pageSize]);
 
     useEffect(() => {
         fetchImages();
     }, [fetchImages]);
 
-    // Reset to page 1 when source changes
+    // Reset to page 1 when source or pageSize changes
     const handleSourceChange = (newSource: ImageSource) => {
         setSource(newSource);
+        setPage(1);
+    };
+
+    const handlePageSizeChange = (newSize: number) => {
+        setPageSize(newSize);
         setPage(1);
     };
 
@@ -390,11 +398,11 @@ export default function ImageGallery() {
             <div className="card-anime p-6">
                 <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500">
-                            <Images className="w-5 h-5 text-white" />
+                        <div className="p-2 rounded-lg bg-gray-800 dark:bg-gray-200">
+                            <Images className="w-5 h-5 text-white dark:text-gray-900" />
                         </div>
                         <div>
-                            <h2 className="text-xl font-bold bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent">
+                            <h2 className="text-xl font-bold text-gray-900 dark:text-white">
                                 图库
                             </h2>
                             <p className="text-xs text-gray-500">共 {total} 张图片</p>
@@ -420,14 +428,30 @@ export default function ImageGallery() {
                         <button
                             key={option.value}
                             onClick={() => handleSourceChange(option.value)}
-                            className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${source === option.value
-                                ? `bg-gradient-to-r ${option.color} text-white shadow-md`
+                            className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${source === option.value
+                                ? 'bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900'
                                 : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
                                 }`}
                         >
                             {option.label}
                         </button>
                     ))}
+                </div>
+
+                {/* Page Size Selector */}
+                <div className="flex items-center gap-2 mb-4">
+                    <span className="text-sm text-gray-500">每页显示:</span>
+                    <select
+                        value={pageSize}
+                        onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+                        className="px-3 py-1 rounded-lg text-sm bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-0 focus:ring-2 focus:ring-gray-500/20"
+                    >
+                        {PAGE_SIZE_OPTIONS.map((size) => (
+                            <option key={size} value={size}>
+                                {size} 张
+                            </option>
+                        ))}
+                    </select>
                 </div>
 
 

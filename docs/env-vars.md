@@ -28,6 +28,9 @@ DASHBOARD_PASSWORD=你的访问密码
 
 # GitHub 同步 (可选，用于上传图片到 GitHub 仓库)
 GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+
+# 背景图片 (可选，自定义面板背景)
+NEXT_PUBLIC_BACKGROUND_URL=https://pic.wzkws116.xyz/pic?img=ua
 ```
 
 ---

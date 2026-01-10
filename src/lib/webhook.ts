@@ -258,12 +258,6 @@ function generateCrawlReportMarkdown(report: CrawlReport): string {
  * @param report 抓取报告
  */
 export async function sendCrawlNotification(report: CrawlReport): Promise<boolean> {
-    const webhookUrl = getWebhookUrl();
-
-    if (!webhookUrl) {
-        return false; // 未配置则静默跳过
-    }
-
     const content = generateCrawlReportMarkdown(report);
 
     const message: MarkdownMessage = {
@@ -271,7 +265,14 @@ export async function sendCrawlNotification(report: CrawlReport): Promise<boolea
         markdown: { content }
     };
 
-    return sendMessage(message);
+    // 先发送企业微信
+    const wecomResult = await sendMessage(message);
+
+    // 再发送 Qmsg酱（纯文本格式）
+    const plainText = generateCrawlReportPlainText(report);
+    await sendQmsgMessage(plainText);
+
+    return wecomResult;
 }
 
 /**
@@ -293,12 +294,6 @@ export async function sendTextNotification(content: string): Promise<boolean> {
  * @param context 上下文描述
  */
 export async function sendErrorAlert(error: string, context?: string): Promise<boolean> {
-    const webhookUrl = getWebhookUrl();
-
-    if (!webhookUrl) {
-        return false;
-    }
-
     const timeStr = new Date().toLocaleString('zh-CN', {
         timeZone: 'Asia/Shanghai',
         month: '2-digit',
@@ -307,7 +302,7 @@ export async function sendErrorAlert(error: string, context?: string): Promise<b
         minute: '2-digit'
     });
 
-    // 简洁的错误通知
+    // 简洁的错误通知 (Markdown)
     let content = `**❌ 抓取异常**`;
     if (context) {
         content += ` - ${context}`;
@@ -321,7 +316,14 @@ export async function sendErrorAlert(error: string, context?: string): Promise<b
         markdown: { content }
     };
 
-    return sendMessage(message);
+    // 先发送企业微信
+    const wecomResult = await sendMessage(message);
+
+    // 再发送 Qmsg酱（纯文本格式）
+    const plainText = generateErrorPlainText(error, context);
+    await sendQmsgMessage(plainText);
+
+    return wecomResult;
 }
 
 /**
@@ -358,12 +360,6 @@ export async function sendCrawlStartNotification(
     type: CrawlType,
     details?: { limit?: number; pid?: number; tag?: string; r18Enabled?: boolean }
 ): Promise<boolean> {
-    const webhookUrl = getWebhookUrl();
-
-    if (!webhookUrl) {
-        return false;
-    }
-
     const typeName = getCrawlTypeName(type);
     const timeStr = new Date().toLocaleString('zh-CN', {
         timeZone: 'Asia/Shanghai',
@@ -373,7 +369,7 @@ export async function sendCrawlStartNotification(
         minute: '2-digit'
     });
 
-    // 简洁的开始通知
+    // 简洁的开始通知 (Markdown)
     let content = `**🚀 开始${typeName}抓取**\n`;
 
     // 详情使用引用样式
@@ -393,7 +389,14 @@ export async function sendCrawlStartNotification(
         markdown: { content }
     };
 
-    return sendMessage(message);
+    // 先发送企业微信
+    const wecomResult = await sendMessage(message);
+
+    // 再发送 Qmsg酱（纯文本格式）
+    const plainText = generateStartPlainText(type, details);
+    await sendQmsgMessage(plainText);
+
+    return wecomResult;
 }
 
 /**

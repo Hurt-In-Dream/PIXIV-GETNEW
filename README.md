@@ -4,6 +4,8 @@
 
 本项目旨在打造一个自动化的高质量二次元背景图库，支持自动抓取 Pixiv 每日排行榜、可选标签搜索、智能过滤非背景类图片、自动平衡横竖屏比例，并转存至 Cloudflare R2。
 
+👉 **建议搭配项目**: [EdgeOne_Function_PicAPI](https://github.com/Hurt-In-Dream/EdgeOne_Function_PicAPI) 使用，用于随机图片 API 分发。
+
 ![Next.js](https://img.shields.io/badge/Next.js-14+-black?style=flat-square&logo=next.js)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue?style=flat-square&logo=typescript)
 ![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-green?style=flat-square&logo=supabase)

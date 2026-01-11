@@ -37,26 +37,34 @@ export async function POST(request: NextRequest) {
 
         const numPid = Number(pid);
 
-        // 发送开始通知
-        sendCrawlStartNotification('pid', {
-            pid: numPid,
-            limit: fetchRelated ? limit : 1
-        }).catch(() => { });
+        // 发送开始通知（同步等待）
+        try {
+            await sendCrawlStartNotification('pid', {
+                pid: numPid,
+                limit: fetchRelated ? limit : 1
+            });
+        } catch (e) {
+            console.error('Start notification failed:', e);
+        }
 
         if (fetchRelated) {
             // Fetch the PID and its related works
             const result = await crawlRelated(numPid, Math.min(limit, 10));
 
-            // 发送完成通知
+            // 发送完成通知（同步等待）
             const duration = (Date.now() - startTime) / 1000;
-            sendSimpleCrawlNotification({
-                type: 'pid',
-                success: result.progress.success,
-                failed: result.progress.failed,
-                skipped: result.progress.skipped,
-                duration,
-                details: { pid: numPid }
-            }).catch(() => { });
+            try {
+                await sendSimpleCrawlNotification({
+                    type: 'pid',
+                    success: result.progress.success,
+                    failed: result.progress.failed,
+                    skipped: result.progress.skipped,
+                    duration,
+                    details: { pid: numPid }
+                });
+            } catch (e) {
+                console.error('Completion notification failed:', e);
+            }
 
             return NextResponse.json({
                 success: result.success,
@@ -67,16 +75,20 @@ export async function POST(request: NextRequest) {
             // Just fetch the single PID
             const result = await processIllustration(numPid, 'pid');
 
-            // 发送完成通知
+            // 发送完成通知（同步等待）
             const duration = (Date.now() - startTime) / 1000;
-            sendSimpleCrawlNotification({
-                type: 'pid',
-                success: result.success && !result.skipped ? 1 : 0,
-                failed: result.success ? 0 : 1,
-                skipped: result.skipped ? 1 : 0,
-                duration,
-                details: { pid: numPid }
-            }).catch(() => { });
+            try {
+                await sendSimpleCrawlNotification({
+                    type: 'pid',
+                    success: result.success && !result.skipped ? 1 : 0,
+                    failed: result.success ? 0 : 1,
+                    skipped: result.skipped ? 1 : 0,
+                    duration,
+                    details: { pid: numPid }
+                });
+            } catch (e) {
+                console.error('Completion notification failed:', e);
+            }
 
             return NextResponse.json({
                 success: result.success,
@@ -88,8 +100,12 @@ export async function POST(request: NextRequest) {
         console.error('PID fetch error:', error);
         const errorMessage = error instanceof Error ? error.message : 'Fetch failed';
 
-        // 发送错误通知
-        sendErrorAlert(errorMessage, 'PID 抓取').catch(() => { });
+        // 发送错误通知（同步等待）
+        try {
+            await sendErrorAlert(errorMessage, 'PID 抓取');
+        } catch (e) {
+            console.error('Error notification failed:', e);
+        }
 
         return NextResponse.json(
             { error: errorMessage },

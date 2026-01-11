@@ -103,11 +103,15 @@ export async function GET(request: NextRequest) {
             favorite: { success: 0, failed: 0, skipped: 0 },
         };
 
-        // 发送开始通知
-        sendCrawlStartNotification('auto', {
-            limit: crawlLimit + (r18Enabled ? r18CrawlLimit : 0),
-            r18Enabled,
-        }).catch(() => { });
+        // 发送开始通知（同步等待以确保发送完成）
+        try {
+            await sendCrawlStartNotification('auto', {
+                limit: crawlLimit + (r18Enabled ? r18CrawlLimit : 0),
+                r18Enabled,
+            });
+        } catch (e) {
+            console.error('Start notification failed:', e);
+        }
 
         // 1. Crawl normal ranking
         await logActivity('info', `[自动抓取] 抓取普通排行榜 (${crawlLimit}张)...`);
@@ -195,10 +199,12 @@ export async function GET(request: NextRequest) {
             timestamp: new Date(),
         };
 
-        // 异步发送通知，不阻塞响应
-        sendCrawlNotification(crawlReport).catch((err) => {
+        // 发送完成通知（同步等待以确保发送完成）
+        try {
+            await sendCrawlNotification(crawlReport);
+        } catch (err) {
             console.error('Webhook notification failed:', err);
-        });
+        }
 
         return NextResponse.json({
             success: true,
@@ -215,10 +221,12 @@ export async function GET(request: NextRequest) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         await logActivity('error', `[自动抓取] 失败: ${errorMessage}`);
 
-        // 发送错误报警
-        sendErrorAlert(errorMessage, '定时自动抓取').catch((err) => {
+        // 发送错误报警（同步等待以确保发送完成）
+        try {
+            await sendErrorAlert(errorMessage, '定时自动抓取');
+        } catch (err) {
             console.error('Webhook error alert failed:', err);
-        });
+        }
 
         return NextResponse.json(
             { error: errorMessage },

@@ -31,21 +31,29 @@ export async function POST(request: NextRequest) {
 
         if (mode === 'tag' && tag) {
             // 标签搜索模式
-            // 发送开始通知
-            sendCrawlStartNotification('tag', { limit, tag }).catch(() => { });
+            // 发送开始通知（同步等待）
+            try {
+                await sendCrawlStartNotification('tag', { limit, tag });
+            } catch (e) {
+                console.error('Start notification failed:', e);
+            }
 
             const result = await crawlByTag(tag, Math.min(limit, 20));
 
-            // 发送完成通知
+            // 发送完成通知（同步等待）
             const duration = (Date.now() - startTime) / 1000;
-            sendSimpleCrawlNotification({
-                type: 'tag',
-                success: result.progress.success,
-                failed: result.progress.failed,
-                skipped: result.progress.skipped,
-                duration,
-                details: { tag }
-            }).catch(() => { });
+            try {
+                await sendSimpleCrawlNotification({
+                    type: 'tag',
+                    success: result.progress.success,
+                    failed: result.progress.failed,
+                    skipped: result.progress.skipped,
+                    duration,
+                    details: { tag }
+                });
+            } catch (e) {
+                console.error('Completion notification failed:', e);
+            }
 
             return NextResponse.json({
                 success: result.success,
@@ -65,11 +73,15 @@ export async function POST(request: NextRequest) {
                 ? (settings as { r18_enabled: boolean }).r18_enabled
                 : false;
 
-            // 发送开始通知
-            sendCrawlStartNotification('manual', {
-                limit,
-                r18Enabled: isR18Enabled
-            }).catch(() => { });
+            // 发送开始通知（同步等待）
+            try {
+                await sendCrawlStartNotification('manual', {
+                    limit,
+                    r18Enabled: isR18Enabled
+                });
+            } catch (e) {
+                console.error('Start notification failed:', e);
+            }
 
             // Always crawl normal ranking
             const halfLimit = Math.ceil(Math.min(limit, 50) / 2);
@@ -90,15 +102,19 @@ export async function POST(request: NextRequest) {
                 skipped: normalResult.progress.skipped + (r18Result?.progress.skipped || 0),
             };
 
-            // 发送完成通知
+            // 发送完成通知（同步等待）
             const duration = (Date.now() - startTime) / 1000;
-            sendSimpleCrawlNotification({
-                type: 'manual',
-                success: combinedProgress.success,
-                failed: combinedProgress.failed,
-                skipped: combinedProgress.skipped,
-                duration,
-            }).catch(() => { });
+            try {
+                await sendSimpleCrawlNotification({
+                    type: 'manual',
+                    success: combinedProgress.success,
+                    failed: combinedProgress.failed,
+                    skipped: combinedProgress.skipped,
+                    duration,
+                });
+            } catch (e) {
+                console.error('Completion notification failed:', e);
+            }
 
             return NextResponse.json({
                 success: normalResult.success && (r18Result?.success ?? true),
@@ -110,8 +126,12 @@ export async function POST(request: NextRequest) {
         console.error('Manual crawl error:', error);
         const errorMessage = error instanceof Error ? error.message : 'Crawl failed';
 
-        // 发送错误通知
-        sendErrorAlert(errorMessage, '手动抓取').catch(() => { });
+        // 发送错误通知（同步等待）
+        try {
+            await sendErrorAlert(errorMessage, '手动抓取');
+        } catch (e) {
+            console.error('Error notification failed:', e);
+        }
 
         return NextResponse.json(
             { error: errorMessage },

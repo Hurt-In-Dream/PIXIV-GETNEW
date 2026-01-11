@@ -224,10 +224,6 @@ DASHBOARD_PASSWORD=MySecretPassword123
 
 **快捷链接:** https://github.com/settings/tokens/new
 
-**目标仓库:**
-- 横屏: `https://github.com/Hurt-In-Dream/EdgeOne_Function_PicAPI/tree/main/ri/h`
-- 竖屏: `https://github.com/Hurt-In-Dream/EdgeOne_Function_PicAPI/tree/main/ri/v`
-
 **示例:**
 ```
 GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx

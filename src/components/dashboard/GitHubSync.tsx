@@ -294,7 +294,7 @@ export default function GitHubSync() {
                             GitHub 同步
                         </h2>
                         <p className="text-xs text-gray-500">
-                            上传到 EdgeOne_Function_PicAPI
+                            同步图片到 GitHub 仓库
                         </p>
                     </div>
                 </div>

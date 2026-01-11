@@ -35,9 +35,11 @@ export interface TransferResult {
 const BATCH_SIZE = 5;
 const DELAY_BETWEEN_DOWNLOADS = 500; // ms
 
-// Minimum resolution for "Wallpaper Quality"
-const MIN_WIDTH = 1200;
-const MIN_HEIGHT = 1200;
+// Minimum resolution for "Wallpaper Quality" (1K/1080p)
+// 横屏: 1920x1080, 竖屏: 1080x1920
+// 短边至少 1080px
+const MIN_SHORT_EDGE = 1080;
+const MIN_LONG_EDGE = 1920;
 
 // Skip square or near-square images (not suitable for wallpaper)
 // Ratio between 0.85 and 1.18 is considered "square-ish"
@@ -380,8 +382,10 @@ export async function crawlRanking(
 
             if (!illust.width || !illust.height) continue;
 
-            // Resolution check for high-quality wallpaper
-            if (illust.width < MIN_WIDTH && illust.height < MIN_HEIGHT) {
+            // Resolution check for high-quality wallpaper (1080p minimum)
+            // 短边至少 1080px
+            const shortEdge = Math.min(illust.width, illust.height);
+            if (shortEdge < MIN_SHORT_EDGE) {
                 skippedByResolution++;
                 continue;
             }
@@ -510,7 +514,9 @@ export async function crawlByTag(
 
             if (!illust.width || !illust.height) continue;
 
-            if (illust.width < MIN_WIDTH && illust.height < MIN_HEIGHT) {
+            // Resolution check (1080p minimum)
+            const shortEdge = Math.min(illust.width, illust.height);
+            if (shortEdge < MIN_SHORT_EDGE) {
                 skippedByResolution++;
                 continue;
             }
@@ -638,8 +644,9 @@ export async function crawlRelated(
                 skippedByRatio++;
                 continue;
             }
-            // Also skip low resolution
-            if (illust.width < MIN_WIDTH && illust.height < MIN_HEIGHT) {
+            // Also skip low resolution (1080p minimum)
+            const shortEdge = Math.min(illust.width, illust.height);
+            if (shortEdge < MIN_SHORT_EDGE) {
                 skippedByRatio++;
                 continue;
             }

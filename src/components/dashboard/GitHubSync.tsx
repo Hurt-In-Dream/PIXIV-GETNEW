@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Github, Upload, Loader2, Check, AlertCircle, RefreshCw, ChevronDown, ChevronUp, Zap } from 'lucide-react';
+import { Github, Upload, Loader2, Check, AlertCircle, RefreshCw, ChevronDown, ChevronUp, Zap, Wrench } from 'lucide-react';
 import { addActivityLog } from './LogViewer';
 
 interface CategoryStatus {
@@ -37,6 +37,7 @@ export default function GitHubSync() {
     const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
     const [expanded, setExpanded] = useState(false);
     const [syncProgress, setSyncProgress] = useState<string>('');
+    const [fixing, setFixing] = useState(false);
 
     // Progress tracking
     const [progressData, setProgressData] = useState<{
@@ -59,6 +60,54 @@ export default function GitHubSync() {
             console.error('Failed to fetch sync status:', error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleFixSync = async () => {
+        setFixing(true);
+        setResult(null);
+
+        try {
+            addActivityLog('info', '[GitHub同步] 开始修复同步状态...');
+
+            const response = await fetch('/api/github-sync-fix', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                let totalFixed = 0;
+                for (const [category, result] of Object.entries(data.results)) {
+                    totalFixed += (result as any).fixed;
+                }
+
+                addActivityLog('success', `[GitHub同步] 修复完成，共更新 ${totalFixed} 条记录`);
+                setResult({
+                    success: true,
+                    message: `修复完成，共更新 ${totalFixed} 条记录`
+                });
+
+                // 刷新状态
+                await fetchStatus();
+            } else {
+                addActivityLog('error', `[GitHub同步] 修复失败: ${data.error || '未知错误'}`);
+                setResult({
+                    success: false,
+                    message: data.error || '修复失败'
+                });
+            }
+        } catch (error) {
+            addActivityLog('error', '[GitHub同步] 修复失败: 网络错误');
+            setResult({
+                success: false,
+                message: '网络错误'
+            });
+        } finally {
+            setFixing(false);
+            // 3秒后清除提示
+            setTimeout(() => setResult(null), 3000);
         }
     };
 
@@ -307,24 +356,45 @@ export default function GitHubSync() {
                 </button>
             </div>
 
-            {/* Sync All Button */}
-            <button
-                onClick={handleSyncAll}
-                disabled={syncing !== null || totalPending === 0}
-                className="w-full mb-4 px-4 py-3 rounded-lg bg-gray-800 dark:bg-gray-200 hover:bg-gray-700 dark:hover:bg-gray-300 disabled:bg-gray-400 dark:disabled:bg-gray-600 text-white dark:text-gray-900 font-medium transition-all flex items-center justify-center gap-2"
-            >
-                {syncing === 'all' ? (
-                    <>
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        {syncProgress || '同步中...'}
-                    </>
-                ) : (
-                    <>
-                        <Zap className="w-5 h-5" />
-                        一键同步全部 {totalPending > 0 && `(${totalPending} 张待传)`}
-                    </>
-                )}
-            </button>
+            {/* Sync All and Fix Buttons */}
+            <div className="mb-4 flex gap-3">
+                <button
+                    onClick={handleSyncAll}
+                    disabled={syncing !== null || totalPending === 0 || fixing}
+                    className="flex-1 px-4 py-3 rounded-lg bg-gray-800 dark:bg-gray-200 hover:bg-gray-700 dark:hover:bg-gray-300 disabled:bg-gray-400 dark:disabled:bg-gray-600 text white dark:text-gray-900 font-medium transition-all flex items-center justify-center gap-2"
+                >
+                    {syncing === 'all' ? (
+                        <>
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                            {syncProgress || '同步中...'}
+                        </>
+                    ) : (
+                        <>
+                            <Zap className="w-5 h-5" />
+                            一键同步全部 {totalPending > 0 && `(${totalPending})`}
+                        </>
+                    )}
+                </button>
+
+                <button
+                    onClick={handleFixSync}
+                    disabled={syncing !== null || fixing}
+                    className="px-4 py-3 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 dark:disabled:bg-gray-600 text-white font-medium transition-all flex items-center justify-center gap-2"
+                    title="修复数据库同步状态与GitHub仓库的不一致问题"
+                >
+                    {fixing ? (
+                        <>
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                            修复中
+                        </>
+                    ) : (
+                        <>
+                            <Wrench className="w-5 h-5" />
+                            修复状态
+                        </>
+                    )}
+                </button>
+            </div>
 
             {/* Global Progress Bar */}
             {syncing === 'all' && progressData && (

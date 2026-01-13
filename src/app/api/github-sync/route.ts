@@ -567,13 +567,29 @@ export async function POST(request: NextRequest) {
         const uploadResult = await batchUploadToGitHub(filesToUpload, commitMessage);
 
         if (uploadResult.success) {
-            // Mark all as synced
+            // Mark all as synced with error handling
+            let syncSuccessCount = 0;
+            let syncFailCount = 0;
+
             for (const img of processedImages) {
-                await supabase
+                const { error } = await supabase
                     .from('pixiv_images')
                     .update({ github_synced: new Date().toISOString() })
                     .eq('id', img.id);
+
+                if (error) {
+                    console.error(`Failed to mark ${img.pid} as synced:`, error);
+                    syncFailCount++;
+                } else {
+                    syncSuccessCount++;
+                }
             }
+
+            console.log(`Marked ${syncSuccessCount}/${processedImages.length} images as synced`);
+            if (syncFailCount > 0) {
+                result.errors.push(`Failed to update ${syncFailCount} records in database`);
+            }
+
             result.uploaded = filesToUpload.length;
 
             // Update counts.json for the random image API

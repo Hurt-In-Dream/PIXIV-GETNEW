@@ -121,7 +121,7 @@ export default function GitHubSync() {
                 const response = await fetch('/api/github-sync', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ category, limit: 50 }),
+                    body: JSON.stringify({ category, limit: 10 }),
                 });
 
                 const data = await response.json();
@@ -131,11 +131,10 @@ export default function GitHubSync() {
                     addActivityLog('success', `[GitHub同步] ${CATEGORY_CONFIG[category].label}: 已上传 ${data.uploaded} 张 (共 ${totalUploaded} 张)`);
                     setSyncProgress(`${CATEGORY_CONFIG[category].label}: 已上传 ${totalUploaded} 张...`);
 
-                    // Check if there are more images to sync
-                    if (data.uploaded < 50) {
-                        hasMore = false;
-                    }
+                    // 继续同步直到没有更多图片
+                    // 注意：后端每次最多返回10张，所以不能用 uploaded < 10 判断
                 } else {
+                    // 没有上传任何图片，说明已经同步完成
                     hasMore = false;
                     if (!data.success && data.error) {
                         addActivityLog('error', `[GitHub同步] ${CATEGORY_CONFIG[category].label}: ${data.error}`);

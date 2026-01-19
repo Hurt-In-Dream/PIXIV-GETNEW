@@ -489,7 +489,7 @@ export async function POST(request: NextRequest) {
             .ilike('r2_url', config.r2Pattern)
             .is('github_synced', null)
             .order('created_at', { ascending: true })
-            .limit(Math.min(limit, 50));
+            .limit(Math.min(limit, 10)); // 降低默认限制避免超时
 
         for (const exclude of config.r2Exclude || []) {
             query = query.not('r2_url', 'ilike', exclude);
@@ -518,39 +518,57 @@ export async function POST(request: NextRequest) {
         // Get starting number
         let currentNum = await getExistingFileCount(config.githubDir);
 
-        // Prepare all files
+        // Prepare all files - 并发下载加速
         const filesToUpload: FileToUpload[] = [];
         const processedImages: { id: string; pid: number }[] = [];
 
-        for (const image of images) {
+        // 并发处理所有图片
+        const processImage = async (image: typeof images[0], index: number) => {
             try {
-                if (!image.r2_url) continue;
+                if (!image.r2_url) return null;
 
                 const imageResponse = await fetch(image.r2_url);
                 if (!imageResponse.ok) {
                     result.errors.push(`Failed to fetch: ${image.pid}`);
-                    continue;
+                    return null;
                 }
 
                 const imageBuffer = await imageResponse.arrayBuffer();
                 const webpBuffer = await convertToWebP(imageBuffer);
                 const base64Content = webpBuffer.toString('base64');
 
-                currentNum++;
-                const filename = `${currentNum}.webp`;
-                const path = `${config.githubDir}/${filename}`;
-
-                filesToUpload.push({
-                    path,
-                    content: base64Content,
-                    imageId: image.id,
-                    pid: image.pid,
-                });
-
-                processedImages.push({ id: image.id, pid: image.pid });
+                return {
+                    index,
+                    file: {
+                        path: '', // 稍后填充
+                        content: base64Content,
+                        imageId: image.id,
+                        pid: image.pid,
+                    },
+                    image: { id: image.id, pid: image.pid }
+                };
             } catch (err) {
                 result.errors.push(`Error processing ${image.pid}: ${err}`);
+                return null;
             }
+        };
+
+        // 并发执行所有下载和转换
+        const results = await Promise.all(
+            images.map((image, index) => processImage(image, index))
+        );
+
+        // 按照原始顺序过滤成功的结果并分配文件名
+        const successResults = results
+            .filter((r): r is NonNullable<typeof r> => r !== null)
+            .sort((a, b) => a.index - b.index);
+
+        for (const item of successResults) {
+            currentNum++;
+            const filename = `${currentNum}.webp`;
+            item.file.path = `${config.githubDir}/${filename}`;
+            filesToUpload.push(item.file as FileToUpload);
+            processedImages.push(item.image);
         }
 
         if (filesToUpload.length === 0) {

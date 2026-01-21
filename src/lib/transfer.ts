@@ -15,6 +15,7 @@ import {
 } from './pixiv';
 import { delay } from './utils';
 import { logInfo, logSuccess, logWarning, logError } from './logger';
+import { sendErrorAlert } from './webhook';
 
 export interface TransferProgress {
     total: number;
@@ -358,11 +359,26 @@ export async function crawlRanking(
         const result = await getRanking(mode, pageNum);
 
         if (!result.success || result.illustrations.length === 0) {
+            const errorMsg = result.error || '无内容';
             await logWarning(
                 `排行榜获取失败或为空`,
-                `模式: ${mode}, 页码: ${pageNum}, 错误: ${result.error || '无内容'}`
+                `模式: ${mode}, 页码: ${pageNum}, 错误: ${errorMsg}`
             );
+
+            // 检测 PHPSESSID 过期并发送通知
             if (pageNum === 1) {
+                const isAuthError = errorMsg.includes('PHPSESSID') ||
+                    errorMsg.includes('expired') ||
+                    errorMsg.includes('No contents');
+
+                if (isAuthError) {
+                    // 发送紧急通知
+                    await sendErrorAlert(
+                        '🔑 Pixiv PHPSESSID 已过期或无效！\n\n请尽快更新 PHPSESSID 环境变量，否则无法正常抓取图片。\n\n操作步骤：\n1. 登录 pixiv.net\n2. F12 打开开发者工具\n3. Application → Cookies → PHPSESSID\n4. 复制新值到 Vercel 环境变量',
+                        '自动抓取失败'
+                    );
+                }
+
                 return {
                     success: false,
                     progress: { total: 0, processed: 0, success: 0, failed: 0, skipped: 0 },

@@ -144,8 +144,24 @@ export async function getRanking(
 
         const response = await client.get('https://www.pixiv.net/ranking.php', { params });
 
+        // Debug: log response status and structure
+        console.log(`[Pixiv API] ranking.php response status: ${response.status}`);
+        console.log(`[Pixiv API] response has contents: ${!!response.data.contents}`);
+        console.log(`[Pixiv API] response keys: ${Object.keys(response.data || {}).join(', ')}`);
+
         if (!response.data.contents) {
-            return { success: false, illustrations: [], error: 'No contents in response' };
+            // Check if this is an auth error (Pixiv redirects to login)
+            const isAuthError = response.data.error ||
+                response.request?.responseURL?.includes('login') ||
+                !response.data.mode;
+
+            return {
+                success: false,
+                illustrations: [],
+                error: isAuthError
+                    ? 'PHPSESSID expired or invalid - please update your Pixiv session'
+                    : 'No contents in response'
+            };
         }
 
         const illustrations: PixivIllust[] = response.data.contents.map((item: PixivRankingItem) => ({

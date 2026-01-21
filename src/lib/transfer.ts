@@ -358,6 +358,10 @@ export async function crawlRanking(
         const result = await getRanking(mode, pageNum);
 
         if (!result.success || result.illustrations.length === 0) {
+            await logWarning(
+                `排行榜获取失败或为空`,
+                `模式: ${mode}, 页码: ${pageNum}, 错误: ${result.error || '无内容'}`
+            );
             if (pageNum === 1) {
                 return {
                     success: false,
@@ -368,6 +372,7 @@ export async function crawlRanking(
             break; // No more pages available
         }
 
+        await logInfo(`获取到第${pageNum}页`, `共 ${result.illustrations.length} 张图片`);
         // Process each illustration
         for (const illust of result.illustrations) {
             // Skip duplicates within this crawl session

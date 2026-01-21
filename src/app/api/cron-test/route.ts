@@ -17,7 +17,8 @@ export async function GET() {
         r2Bucket: process.env.R2_BUCKET_NAME || '未配置',
         r2PublicUrl: process.env.R2_PUBLIC_URL || '未配置',
         supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ? '已配置' : '未配置',
-        supabaseKey: process.env.SUPABASE_SERVICE_KEY ? '已配置' : '未配置',
+        supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ? '已配置' : '未配置',
+        supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? '已配置' : '未配置',
     };
 
     const allConfigured =
@@ -27,7 +28,7 @@ export async function GET() {
         checks.r2AccessKey !== '未配置' &&
         checks.r2SecretKey !== '未配置' &&
         checks.supabaseUrl !== '未配置' &&
-        checks.supabaseKey !== '未配置';
+        checks.supabaseServiceRoleKey !== '未配置';
 
     return NextResponse.json({
         status: allConfigured ? '✅ 所有配置正常' : '❌ 部分配置缺失',

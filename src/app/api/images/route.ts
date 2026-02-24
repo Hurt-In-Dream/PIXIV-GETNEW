@@ -91,77 +91,75 @@ export async function GET(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
     try {
         const body = await request.json();
-        const { id } = body;
+        const { id, ids } = body;
 
-        if (!id) {
+        // 支持单个id或批量ids
+        const deleteIds: string[] = ids ? ids : id ? [id] : [];
+
+        if (deleteIds.length === 0) {
             return NextResponse.json(
-                { error: 'Image ID required' },
+                { error: 'Image ID(s) required' },
                 { status: 400 }
             );
         }
 
         const supabase = createServerClient();
+        let r2DeletedCount = 0;
 
-        // First get the image to get the R2 URL
-        const { data: image } = await supabase
-            .from('pixiv_images')
-            .select('r2_url')
-            .eq('id', id)
-            .single();
+        for (const deleteId of deleteIds) {
+            // First get the image to get the R2 URL
+            const { data: image } = await supabase
+                .from('pixiv_images')
+                .select('r2_url')
+                .eq('id', deleteId)
+                .single();
 
-        // Try to delete from R2 if URL exists
-        if (image?.r2_url) {
-            try {
-                // Extract the key from R2 URL
-                const r2Url = new URL(image.r2_url);
-                const key = r2Url.pathname.slice(1); // Remove leading /
+            // Try to delete from R2 if URL exists
+            if (image?.r2_url) {
+                try {
+                    const r2Url = new URL(image.r2_url);
+                    const key = r2Url.pathname.slice(1);
 
-                // Delete from R2 using S3 API
-                const r2Endpoint = process.env.R2_ENDPOINT;
-                const r2AccessKey = process.env.R2_ACCESS_KEY_ID;
-                const r2SecretKey = process.env.R2_SECRET_ACCESS_KEY;
-                const r2Bucket = process.env.R2_BUCKET_NAME;
+                    const r2Endpoint = process.env.R2_ENDPOINT;
+                    const r2AccessKey = process.env.R2_ACCESS_KEY_ID;
+                    const r2SecretKey = process.env.R2_SECRET_ACCESS_KEY;
+                    const r2Bucket = process.env.R2_BUCKET_NAME;
 
-                if (r2Endpoint && r2AccessKey && r2SecretKey && r2Bucket) {
-                    // Import S3 client dynamically
-                    const { S3Client, DeleteObjectCommand } = await import('@aws-sdk/client-s3');
+                    if (r2Endpoint && r2AccessKey && r2SecretKey && r2Bucket) {
+                        const { S3Client, DeleteObjectCommand } = await import('@aws-sdk/client-s3');
 
-                    const s3Client = new S3Client({
-                        region: 'auto',
-                        endpoint: r2Endpoint,
-                        credentials: {
-                            accessKeyId: r2AccessKey,
-                            secretAccessKey: r2SecretKey,
-                        },
-                    });
+                        const s3Client = new S3Client({
+                            region: 'auto',
+                            endpoint: r2Endpoint,
+                            credentials: {
+                                accessKeyId: r2AccessKey,
+                                secretAccessKey: r2SecretKey,
+                            },
+                        });
 
-                    await s3Client.send(new DeleteObjectCommand({
-                        Bucket: r2Bucket,
-                        Key: key,
-                    }));
-
-                    console.log(`Deleted from R2: ${key}`);
+                        await s3Client.send(new DeleteObjectCommand({
+                            Bucket: r2Bucket,
+                            Key: key,
+                        }));
+                        r2DeletedCount++;
+                    }
+                } catch (r2Error) {
+                    console.error('Failed to delete from R2:', r2Error);
                 }
-            } catch (r2Error) {
-                // Log but don't fail the whole operation
-                console.error('Failed to delete from R2:', r2Error);
+            }
+
+            // Delete from database
+            const { error } = await supabase
+                .from('pixiv_images')
+                .delete()
+                .eq('id', deleteId);
+
+            if (error) {
+                console.error(`Failed to delete ${deleteId}:`, error);
             }
         }
 
-        // Delete from database
-        const { error } = await supabase
-            .from('pixiv_images')
-            .delete()
-            .eq('id', id);
-
-        if (error) {
-            return NextResponse.json(
-                { error: error.message },
-                { status: 500 }
-            );
-        }
-
-        return NextResponse.json({ success: true, r2Deleted: !!image?.r2_url });
+        return NextResponse.json({ success: true, deleted: deleteIds.length, r2Deleted: r2DeletedCount });
     } catch (error) {
         console.error('Delete image error:', error);
         return NextResponse.json(

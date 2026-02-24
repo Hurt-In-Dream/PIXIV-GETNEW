@@ -16,7 +16,9 @@ import {
     Plus,
     FolderOpen,
     Heart,
-    ImageOff
+    ImageOff,
+    CheckSquare,
+    Square
 } from 'lucide-react';
 
 interface PixivImage {
@@ -47,7 +49,7 @@ const SOURCE_OPTIONS: { value: ImageSource; label: string }[] = [
     { value: 'all', label: '全部' },
 ];
 
-const PAGE_SIZE_OPTIONS = [12, 24, 36, 48];
+const PAGE_SIZE_OPTIONS = [12, 24, 48, 96, 200];
 
 // Image fallback sources
 const getImageSources = (pid: number, r2Url: string | null, originalUrl?: string): string[] => {
@@ -77,13 +79,19 @@ function GalleryImage({
     onLike,
     onCopy,
     onDelete,
-    copiedId
+    copiedId,
+    selectMode,
+    selected,
+    onToggleSelect
 }: {
     image: PixivImage;
     onLike: (image: PixivImage, e: React.MouseEvent) => void;
     onCopy: (url: string, id: string) => void;
     onDelete: (image: PixivImage) => void;
     copiedId: string | null;
+    selectMode: boolean;
+    selected: boolean;
+    onToggleSelect: (id: string) => void;
 }) {
     const [imgLoaded, setImgLoaded] = useState(false);
     const [imgError, setImgError] = useState(false);
@@ -106,7 +114,10 @@ function GalleryImage({
     };
 
     return (
-        <div className="group relative break-inside-avoid rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-800 mb-4">
+        <div
+            className={`group relative break-inside-avoid rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-800 mb-4 ${selectMode ? 'cursor-pointer' : ''} ${selected ? 'ring-2 ring-red-500' : ''}`}
+            onClick={selectMode ? () => onToggleSelect(image.id) : undefined}
+        >
             {/* Loading skeleton */}
             {!imgLoaded && !imgError && (
                 <div className="absolute inset-0 flex items-center justify-center bg-gray-200 dark:bg-gray-700 animate-pulse">
@@ -212,6 +223,17 @@ function GalleryImage({
             <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/50 backdrop-blur-sm text-white text-xs font-mono">
                 {image.pid}
             </div>
+
+            {/* Select Checkbox */}
+            {selectMode && (
+                <div className="absolute top-2 right-2 z-10">
+                    {selected ? (
+                        <CheckSquare className="w-6 h-6 text-red-500 drop-shadow-md" />
+                    ) : (
+                        <Square className="w-6 h-6 text-white drop-shadow-md" />
+                    )}
+                </div>
+            )}
         </div>
     );
 }
@@ -238,6 +260,11 @@ export default function ImageGallery() {
     const [likedTags, setLikedTags] = useState<Set<string>>(new Set());
     const [liking, setLiking] = useState(false);
     const [likeSuccess, setLikeSuccess] = useState(false);
+
+    // Batch select state
+    const [selectMode, setSelectMode] = useState(false);
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [batchDeleting, setBatchDeleting] = useState(false);
 
     const fetchImages = useCallback(async () => {
         setLoading(true);
@@ -341,6 +368,56 @@ export default function ImageGallery() {
         } finally {
             setDeleting(false);
         }
+    };
+
+    // Batch select
+    const toggleSelect = (id: string) => {
+        setSelectedIds(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(id)) {
+                newSet.delete(id);
+            } else {
+                newSet.add(id);
+            }
+            return newSet;
+        });
+    };
+
+    const selectAll = () => {
+        setSelectedIds(new Set(images.map(img => img.id)));
+    };
+
+    const deselectAll = () => {
+        setSelectedIds(new Set());
+    };
+
+    const batchDelete = async () => {
+        if (selectedIds.size === 0) return;
+        if (!confirm(`确定删除选中的 ${selectedIds.size} 张图片吗？此操作不可撤销！`)) return;
+
+        setBatchDeleting(true);
+        try {
+            const response = await fetch('/api/images', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ids: Array.from(selectedIds) }),
+            });
+
+            if (!response.ok) throw new Error('Failed to delete');
+
+            setSelectedIds(new Set());
+            setSelectMode(false);
+            fetchImages();
+        } catch (error) {
+            console.error('Batch delete failed:', error);
+        } finally {
+            setBatchDeleting(false);
+        }
+    };
+
+    const exitSelectMode = () => {
+        setSelectMode(false);
+        setSelectedIds(new Set());
     };
 
     // Like functionality
@@ -452,7 +529,51 @@ export default function ImageGallery() {
                             </option>
                         ))}
                     </select>
+
+                    {/* Select Mode Toggle */}
+                    <button
+                        onClick={selectMode ? exitSelectMode : () => setSelectMode(true)}
+                        className={`px-3 py-1 rounded-lg text-sm font-medium transition-all ${selectMode
+                            ? 'bg-red-500 text-white hover:bg-red-600'
+                            : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                            }`}
+                    >
+                        {selectMode ? '退出选择' : '批量选择'}
+                    </button>
                 </div>
+
+                {/* Batch Action Bar */}
+                {selectMode && (
+                    <div className="flex items-center gap-3 mb-4 px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">
+                            已选择 <span className="font-bold text-gray-900 dark:text-white">{selectedIds.size}</span> 张
+                        </span>
+                        <button
+                            onClick={selectAll}
+                            className="px-3 py-1 rounded text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+                        >
+                            全选本页
+                        </button>
+                        <button
+                            onClick={deselectAll}
+                            className="px-3 py-1 rounded text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+                        >
+                            取消全选
+                        </button>
+                        <button
+                            onClick={batchDelete}
+                            disabled={selectedIds.size === 0 || batchDeleting}
+                            className="ml-auto px-4 py-1 rounded text-xs font-medium bg-red-500 text-white hover:bg-red-600 disabled:bg-gray-400 flex items-center gap-1"
+                        >
+                            {batchDeleting ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                                <Trash2 className="w-3 h-3" />
+                            )}
+                            删除选中 ({selectedIds.size})
+                        </button>
+                    </div>
+                )}
 
 
                 {loading && images.length === 0 ? (
@@ -477,6 +598,9 @@ export default function ImageGallery() {
                                     onCopy={copyToClipboard}
                                     onDelete={openDeleteModal}
                                     copiedId={copiedId}
+                                    selectMode={selectMode}
+                                    selected={selectedIds.has(image.id)}
+                                    onToggleSelect={toggleSelect}
                                 />
                             ))}
                         </div>

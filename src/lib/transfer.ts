@@ -198,6 +198,7 @@ export async function processIllustration(
         tags: info.tags,
         original_url: firstUrl,
         r2_url: uploadResult.url || null,
+        github_url: null,
     });
 
     if (!saved) {

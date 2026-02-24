@@ -203,6 +203,8 @@ export async function POST(request: NextRequest) {
                 return NextResponse.json({ error: 'Category required (h, v, r18/h, etc.)' }, { status: 400 });
             }
             return await cleanGitHubCategory(category, dryRun);
+        } else if (action === 'clean-synced') {
+            return await cleanSyncedR2Files(dryRun);
         } else {
             return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
         }
@@ -212,6 +214,100 @@ export async function POST(request: NextRequest) {
             { status: 500 }
         );
     }
+}
+
+/**
+ * Clean R2 files for images that have been synced to GitHub
+ * Only cleans images that have both github_synced AND github_url set (safe to delete)
+ * Sets r2_url to null but preserves github_url and database record
+ */
+async function cleanSyncedR2Files(dryRun: boolean) {
+    const s3Client = getS3Client();
+    const bucket = process.env.R2_BUCKET_NAME;
+
+    if (!s3Client || !bucket) {
+        return NextResponse.json({ error: 'R2 not configured' }, { status: 500 });
+    }
+
+    const supabase = createServerClient();
+
+    // 查找已同步到GitHub且有github_url的图片（双重保障）
+    const { data: syncedImages, error } = await supabase
+        .from('pixiv_images')
+        .select('id, r2_url, github_url, pid')
+        .not('github_synced', 'is', null)
+        .not('github_url', 'is', null)
+        .not('r2_url', 'is', null);
+
+    if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    if (!syncedImages || syncedImages.length === 0) {
+        return NextResponse.json({
+            success: true,
+            message: '没有可清理的已同步图片',
+            wouldClean: 0,
+        });
+    }
+
+    if (dryRun) {
+        // 估算大小
+        return NextResponse.json({
+            dryRun: true,
+            wouldClean: syncedImages.length,
+            sampleImages: syncedImages.slice(0, 10).map(img => ({
+                pid: img.pid,
+                r2_url: img.r2_url,
+                github_url: img.github_url,
+            })),
+            message: `将清理 ${syncedImages.length} 张已同步图片的 R2 文件（github_url 保留）。设置 dryRun: false 执行清理。`,
+        });
+    }
+
+    // 实际清理
+    let cleaned = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    for (const image of syncedImages) {
+        try {
+            // 1. 从 R2 删除文件
+            if (image.r2_url) {
+                const url = new URL(image.r2_url);
+                const key = url.pathname.slice(1);
+
+                await s3Client.send(new DeleteObjectCommand({
+                    Bucket: bucket,
+                    Key: key,
+                }));
+            }
+
+            // 2. 数据库中置空 r2_url，保留 github_url
+            const { error: updateError } = await supabase
+                .from('pixiv_images')
+                .update({ r2_url: null })
+                .eq('id', image.id);
+
+            if (updateError) {
+                errors.push(`DB update failed for PID ${image.pid}: ${updateError.message}`);
+                failed++;
+            } else {
+                cleaned++;
+            }
+        } catch (err) {
+            errors.push(`R2 delete failed for PID ${image.pid}: ${err}`);
+            failed++;
+        }
+    }
+
+    return NextResponse.json({
+        dryRun: false,
+        cleaned,
+        failed,
+        errors: errors.length > 0 ? errors.slice(0, 20) : undefined,
+        message: `已清理 ${cleaned} 张图片的 R2 文件，github_url 保留完好`,
+    });
 }
 
 /**

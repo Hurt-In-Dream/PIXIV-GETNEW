@@ -29,6 +29,7 @@ interface PixivImage {
     tags: string[];
     original_url: string;
     r2_url: string | null;
+    github_url: string | null;
     created_at: string;
 }
 
@@ -52,20 +53,22 @@ const SOURCE_OPTIONS: { value: ImageSource; label: string }[] = [
 const PAGE_SIZE_OPTIONS = [12, 24, 48, 96, 200];
 
 // Image fallback sources
-const getImageSources = (pid: number, r2Url: string | null, originalUrl?: string): string[] => {
+const getImageSources = (pid: number, r2Url: string | null, githubUrl: string | null, originalUrl?: string): string[] => {
     const sources: string[] = [];
 
     // 1. R2 storage (fastest if available)
     if (r2Url) sources.push(r2Url);
 
-    // 2. i.yuki.sh mirror (use original pximg path)
+    // 2. GitHub CDN (available if synced, R2 may have been cleaned)
+    if (githubUrl) sources.push(githubUrl);
+
+    // 3. i.yuki.sh mirror (use original pximg path)
     if (originalUrl) {
-        // Convert: https://i.pximg.net/... -> https://i.yuki.sh/...
         const yukiUrl = originalUrl.replace('i.pximg.net', 'i.yuki.sh');
         sources.push(yukiUrl);
     }
 
-    // 3. Other Pixiv proxy mirrors as fallback
+    // 4. Other Pixiv proxy mirrors as fallback
     sources.push(`https://pixiv.re/${pid}.jpg`);
     sources.push(`https://pixiv.nl/${pid}.jpg`);
     sources.push(`https://i.pixiv.re/${pid}.jpg`);
@@ -97,7 +100,7 @@ function GalleryImage({
     const [imgError, setImgError] = useState(false);
     const [currentSourceIndex, setCurrentSourceIndex] = useState(0);
 
-    const sources = getImageSources(image.pid, image.r2_url, image.original_url);
+    const sources = getImageSources(image.pid, image.r2_url, image.github_url, image.original_url);
     const currentSrc = sources[currentSourceIndex];
 
     const handleError = () => {
@@ -181,11 +184,11 @@ function GalleryImage({
                             </button>
 
                             {/* Copy R2 URL */}
-                            {image.r2_url && (
+                            {(image.r2_url || image.github_url) && (
                                 <button
-                                    onClick={() => onCopy(image.r2_url!, image.id)}
+                                    onClick={() => onCopy((image.r2_url || image.github_url)!, image.id)}
                                     className="p-1.5 rounded-lg bg-white/20 hover:bg-white/30 transition-colors"
-                                    title="复制 R2 链接"
+                                    title="复制图片链接"
                                 >
                                     {copiedId === image.id ? (
                                         <Check className="w-4 h-4 text-green-400" />
@@ -656,7 +659,7 @@ export default function ImageGallery() {
                         <div className="mb-4">
                             <div className="aspect-video rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 mb-2">
                                 <img
-                                    src={imageToLike.r2_url || `https://pixiv.re/${imageToLike.pid}.jpg`}
+                                    src={imageToLike.r2_url || imageToLike.github_url || `https://pixiv.re/${imageToLike.pid}.jpg`}
                                     alt={imageToLike.title}
                                     className="w-full h-full object-cover"
                                     onError={(e) => {
@@ -755,7 +758,7 @@ export default function ImageGallery() {
                         <div className="mb-4">
                             <div className="aspect-video rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 mb-2">
                                 <img
-                                    src={imageToDelete.r2_url || `https://pixiv.re/${imageToDelete.pid}.jpg`}
+                                    src={imageToDelete.r2_url || imageToDelete.github_url || `https://pixiv.re/${imageToDelete.pid}.jpg`}
                                     alt={imageToDelete.title}
                                     className="w-full h-full object-cover"
                                     onError={(e) => {

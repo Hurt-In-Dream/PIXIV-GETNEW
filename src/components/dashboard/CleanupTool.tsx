@@ -109,6 +109,35 @@ export default function CleanupTool() {
         }
     };
 
+    const cleanSynced = async (dryRun: boolean) => {
+        if (!dryRun && !confirm('确定要清理所有已同步到 GitHub 的 R2 文件吗？\n清理后图库将使用 GitHub CDN 显示图片。此操作不可撤销！')) {
+            return;
+        }
+
+        setLoading(dryRun ? 'preview-synced' : 'clean-synced');
+        setError(null);
+        setResult(null);
+
+        try {
+            const response = await fetch('/api/cleanup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'clean-synced', dryRun }),
+            });
+            const data = await response.json();
+            if (data.error) throw new Error(data.error);
+            setResult({
+                dryRun,
+                wouldDelete: data.wouldClean,
+                deleted: data.cleaned,
+            });
+        } catch (err) {
+            setError(err instanceof Error ? err.message : '操作失败');
+        } finally {
+            setLoading(null);
+        }
+    };
+
     const categoryLabels: Record<string, string> = {
         'h': '排行榜横屏',
         'v': '排行榜竖屏',
@@ -213,6 +242,44 @@ export default function CleanupTool() {
                         )}
                     </div>
                 )}
+            </div>
+
+            {/* Clean Synced R2 Section */}
+            <div className="mb-6 p-4 rounded-xl border border-gray-200 dark:border-gray-700">
+                <div className="flex items-center gap-2 mb-3">
+                    <Database className="w-5 h-5 text-teal-500" />
+                    <h3 className="font-semibold text-gray-800 dark:text-gray-200">释放 R2 空间</h3>
+                </div>
+                <p className="text-xs text-gray-500 mb-3">
+                    清理已同步到 GitHub 的图片的 R2 副本。清理后图库将自动使用 GitHub CDN 显示。
+                    仅清理同时满足「已同步」且「有 GitHub CDN 地址」的图片，双重保障不丢数据。
+                </p>
+                <div className="flex gap-2">
+                    <button
+                        onClick={() => cleanSynced(true)}
+                        disabled={loading !== null}
+                        className="flex-1 px-4 py-2 rounded-lg bg-teal-500 hover:bg-teal-600 text-white font-medium flex items-center justify-center gap-2"
+                    >
+                        {loading === 'preview-synced' ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                            <RefreshCw className="w-4 h-4" />
+                        )}
+                        预览可清理
+                    </button>
+                    <button
+                        onClick={() => cleanSynced(false)}
+                        disabled={loading !== null}
+                        className="flex-1 px-4 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium flex items-center justify-center gap-2"
+                    >
+                        {loading === 'clean-synced' ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                            <Trash2 className="w-4 h-4" />
+                        )}
+                        执行清理
+                    </button>
+                </div>
             </div>
 
             {/* GitHub Cleanup Section */}

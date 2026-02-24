@@ -9,6 +9,7 @@ export interface PixivImage {
     tags: string[];
     original_url: string;
     r2_url: string | null;
+    github_url: string | null;
     created_at: string;
 }
 

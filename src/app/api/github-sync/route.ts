@@ -12,6 +12,7 @@ const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const GITHUB_OWNER = 'Hurt-In-Dream';
 const GITHUB_REPO = 'EdgeOne_Function_PicAPI';
 const GITHUB_BRANCH = 'main';
+const GITHUB_CDN_URL = process.env.GITHUB_CDN_URL || 'https://cdnpic.wzkws116.xyz';
 
 // Define sync categories
 type SyncCategory = 'h' | 'v' | 'r18h' | 'r18v' | 'pidh' | 'pidv' | 'tagh' | 'tagv';
@@ -556,7 +557,7 @@ export async function POST(request: NextRequest) {
 
         // Prepare all files - 并发下载加速
         const filesToUpload: FileToUpload[] = [];
-        const processedImages: { id: string; pid: number; title: string; artist: string }[] = [];
+        const processedImages: { id: string; pid: number; title: string; artist: string; githubUrl: string }[] = [];
 
         // 并发处理所有图片
         const processImage = async (image: typeof images[0], index: number) => {
@@ -605,9 +606,13 @@ export async function POST(request: NextRequest) {
         for (const item of successResults) {
             currentNum++;
             const filename = `${currentNum}.webp`;
-            item.file.path = `${config.githubDir}/${filename}`;
+            const githubPath = `${config.githubDir}/${filename}`;
+            item.file.path = githubPath;
             filesToUpload.push(item.file as FileToUpload);
-            processedImages.push(item.image);
+            processedImages.push({
+                ...item.image,
+                githubUrl: `${GITHUB_CDN_URL}/${githubPath}`,
+            });
 
             // 添加到 index 映射
             existingIndex[filename] = {
@@ -648,7 +653,10 @@ export async function POST(request: NextRequest) {
             for (const img of processedImages) {
                 const { error } = await supabase
                     .from('pixiv_images')
-                    .update({ github_synced: new Date().toISOString() })
+                    .update({
+                        github_synced: new Date().toISOString(),
+                        github_url: img.githubUrl,
+                    })
                     .eq('id', img.id);
 
                 if (error) {

@@ -85,6 +85,14 @@ interface FileToUpload {
     pid: number;
 }
 
+// index.json 映射条目
+interface IndexEntry {
+    pid: number;
+    title: string;
+    artist: string;
+    syncedAt: string;
+}
+
 /**
  * Get the latest commit SHA for the branch
  */
@@ -423,6 +431,34 @@ async function convertToWebP(imageBuffer: ArrayBuffer): Promise<Buffer> {
 }
 
 /**
+ * Get existing index.json from GitHub
+ */
+async function getExistingIndex(dir: string): Promise<Record<string, IndexEntry>> {
+    try {
+        const response = await fetch(
+            `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${dir}/index.json?ref=${GITHUB_BRANCH}`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${GITHUB_TOKEN}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                },
+            }
+        );
+
+        if (response.ok) {
+            const data = await response.json();
+            if (data.content) {
+                const content = Buffer.from(data.content, 'base64').toString('utf-8');
+                return JSON.parse(content);
+            }
+        }
+        return {};
+    } catch {
+        return {};
+    }
+}
+
+/**
  * Get images count for a category
  */
 async function getCategoryCount(supabase: ReturnType<typeof createServerClient>, category: SyncCategory) {
@@ -520,7 +556,7 @@ export async function POST(request: NextRequest) {
 
         // Prepare all files - 并发下载加速
         const filesToUpload: FileToUpload[] = [];
-        const processedImages: { id: string; pid: number }[] = [];
+        const processedImages: { id: string; pid: number; title: string; artist: string }[] = [];
 
         // 并发处理所有图片
         const processImage = async (image: typeof images[0], index: number) => {
@@ -545,7 +581,7 @@ export async function POST(request: NextRequest) {
                         imageId: image.id,
                         pid: image.pid,
                     },
-                    image: { id: image.id, pid: image.pid }
+                    image: { id: image.id, pid: image.pid, title: image.title || '', artist: image.artist || '' }
                 };
             } catch (err) {
                 result.errors.push(`Error processing ${image.pid}: ${err}`);
@@ -563,13 +599,33 @@ export async function POST(request: NextRequest) {
             .filter((r): r is NonNullable<typeof r> => r !== null)
             .sort((a, b) => a.index - b.index);
 
+        // 读取已有的 index.json
+        const existingIndex = await getExistingIndex(config.githubDir);
+
         for (const item of successResults) {
             currentNum++;
             const filename = `${currentNum}.webp`;
             item.file.path = `${config.githubDir}/${filename}`;
             filesToUpload.push(item.file as FileToUpload);
             processedImages.push(item.image);
+
+            // 添加到 index 映射
+            existingIndex[filename] = {
+                pid: item.image.pid,
+                title: item.image.title,
+                artist: item.image.artist,
+                syncedAt: new Date().toISOString(),
+            };
         }
+
+        // 将 index.json 也加入上传列表
+        const indexContent = Buffer.from(JSON.stringify(existingIndex, null, 2)).toString('base64');
+        filesToUpload.push({
+            path: `${config.githubDir}/index.json`,
+            content: indexContent,
+            imageId: 'index',
+            pid: 0,
+        });
 
         if (filesToUpload.length === 0) {
             return NextResponse.json({
